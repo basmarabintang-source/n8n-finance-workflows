@@ -1,0 +1,1075 @@
+{
+  "name": "[PORTFOLIO] Employee Onboarding Coordinator",
+  "nodes": [
+    {
+      "id": "2233bfd7-2128-46fa-9625-64bc2081efdd",
+      "name": "Every Morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        32
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 7,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "notes": "Before the working day, so a team that owes something has the whole day to do it."
+    },
+    {
+      "id": "3f5dddb8-830c-4a98-b1b2-3f26f014748c",
+      "name": "Load New Hires",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        128
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gm82eMzb2E5jC5Kv",
+          "cachedResultName": "HR New Hires"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "Everyone in flight, including cancelled offers. Filtering happens in the engine so the reason for skipping someone is written down rather than hidden in a query."
+    },
+    {
+      "id": "912427d9-3e90-45a5-9eba-17ed42fe7436",
+      "name": "Run Demo Now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        224
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "458c49ad-8444-4973-9eec-06829bd07f72",
+      "name": "Load Onboarding Checklist",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        128
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "plGIvwfs3LbSSVO6",
+          "cachedResultName": "HR Onboarding Checklist"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "The checklist is DATA, not code. HR adds a row to give every future mechanic a new induction step, and nobody has to open this workflow.",
+      "executeOnce": true
+    },
+    {
+      "id": "47b98a57-d3a2-41d3-8f69-f35c54c74e6e",
+      "name": "Load Existing Tasks",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        128
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "EDMOX1EysFgCdKXx",
+          "cachedResultName": "HR Onboarding Tasks"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "Empty on the very first run for a brand new hire, which is the normal case, so this must not stop the chain.",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "47bb268b-ce4d-48dc-8b8e-fe3ff78e772f",
+      "name": "Expand the Checklist per Hire",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        128
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function dayDiff(fromIso, toIso) {\n  const a = Date.parse(String(fromIso) + 'T00:00:00Z');\n  const b = Date.parse(String(toIso) + 'T00:00:00Z');\n  if (isNaN(a) || isNaN(b)) return null;\n  return Math.round((b - a) / 86400000);\n}\nfunction shiftIso(iso, days) {\n  const t = Date.parse(String(iso) + 'T00:00:00Z');\n  if (isNaN(t)) return '';\n  return new Date(t - days * 86400000).toISOString().slice(0, 10);\n}\nfunction truthy(v) {\n  return v === true || v === 'true' || v === 1 || v === '1';\n}\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst existing = {};\nfor (const it of $('Load Existing Tasks').all()) {\n  const r = it.json || {};\n  if (!r.task_key) continue;\n  existing[String(r.task_key).trim()] = r;\n}\n\nconst template = $('Load Onboarding Checklist').all()\n  .map(function (i) { return i.json || {}; })\n  .filter(function (t) { return t.task_code; });\n\nconst out = [];\n\nfor (const it of $('Load New Hires').all()) {\n  const h = it.json || {};\n  const hireId = String(h.hire_id || '').trim().toUpperCase();\n  const status = String(h.status || 'pending').trim().toLowerCase();\n  const startDate = String(h.start_date || '').trim();\n  const role = String(h.role || '').trim();\n  const dept = String(h.department || '').trim();\n  const empType = String(h.employment_type || '').trim();\n\n  if (!hireId) continue;\n  if (status === 'cancelled') continue;\n  if (dayDiff(startDate, today) === null) continue;\n\n  const wanted = template.filter(function (t) {\n    const a = String(t.applies_to || 'ALL').trim();\n    if (a === 'ALL') return true;\n    if (a.indexOf('ROLE:') === 0) return a.slice(5).trim().toLowerCase() === role.toLowerCase();\n    if (a.indexOf('DEPT:') === 0) return a.slice(5).trim().toLowerCase() === dept.toLowerCase();\n    if (a.indexOf('TYPE:') === 0) return a.slice(5).trim().toLowerCase() === empType.toLowerCase();\n    return false;\n  });\n\n  for (const t of wanted) {\n    const taskCode = String(t.task_code).trim().toUpperCase();\n    const taskKey = hireId + '|' + taskCode;\n    const prev = existing[taskKey] || null;\n    const leadDays = Number(t.lead_days) || 0;\n    const dueDate = shiftIso(startDate, leadDays);\n\n    out.push({\n      json: {\n        task_key: taskKey,\n        hire_id: hireId,\n        hire_name: String(h.full_name || ''),\n        hire_role: role,\n        hire_department: dept,\n        employment_type: empType,\n        manager: String(h.manager || ''),\n        manager_email: String(h.manager_email || ''),\n        start_date: startDate,\n        days_to_start: dayDiff(today, startDate),\n        task_code: taskCode,\n        task_name: String(t.task_name || ''),\n        owner_team: String(t.owner_team || 'Unassigned'),\n        owner_email: String(t.owner_email || ''),\n        due_date: dueDate,\n        days_to_due: dayDiff(today, dueDate),\n        mandatory: truthy(t.mandatory),\n        blocks_day_one: truthy(t.blocks_day_one),\n        status: prev ? String(prev.status || 'open').trim().toLowerCase() : 'open',\n        completed_on: prev ? String(prev.completed_on || '') : '',\n        completed_by: prev ? String(prev.completed_by || '') : '',\n        blocked_reason: prev ? String(prev.blocked_reason || '') : '',\n        last_chased_on: prev ? String(prev.last_chased_on || '') : '',\n        created_on: prev ? String(prev.created_on || today) : today,\n        is_new: prev ? false : true,\n        assessed_on: today,\n        execution_id: String($execution.id || 'manual')\n      }\n    });\n  }\n}\n\nreturn out;"
+      },
+      "notes": "Turns 6 hires and 12 checklist rows into the exact task list each person needs, by role, department and employment type. A hire with no tasks yet comes out fully populated and flagged is_new."
+    },
+    {
+      "id": "5d87e7d2-0ff0-4cd5-92d5-0ae30a9ec1fc",
+      "name": "Only Tasks Not Yet Created",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        16
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f-new",
+              "leftValue": "={{ $json.is_new }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "notes": "Only the rows that do not exist yet are written. Everything already in the table keeps its status, so a completed task is never reset to open by a later run."
+    },
+    {
+      "id": "70310627-fcea-4eaa-b3ce-b73bcd653f91",
+      "name": "Create the Missing Tasks",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        16
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "EDMOX1EysFgCdKXx",
+          "cachedResultName": "HR Onboarding Tasks"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "task_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.task_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "task_key"
+          ],
+          "value": {
+            "task_key": "={{ $json.task_key }}",
+            "hire_id": "={{ $json.hire_id }}",
+            "task_code": "={{ $json.task_code }}",
+            "task_name": "={{ $json.task_name }}",
+            "owner_team": "={{ $json.owner_team }}",
+            "owner_email": "={{ $json.owner_email }}",
+            "due_date": "={{ $json.due_date }}",
+            "status": "={{ $json.status }}",
+            "completed_on": "={{ $json.completed_on }}",
+            "completed_by": "={{ $json.completed_by }}",
+            "blocked_reason": "={{ $json.blocked_reason }}",
+            "mandatory": "={{ $json.mandatory }}",
+            "blocks_day_one": "={{ $json.blocks_day_one }}",
+            "created_on": "={{ $json.created_on }}",
+            "last_chased_on": "={{ $json.last_chased_on }}"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Upsert rather than insert, keyed on task_key, so re-running the same morning cannot create a second copy of the same task.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "d6f68da1-55ee-4524-8200-0b8f289891d5",
+      "name": "Assess Readiness per Hire",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        256
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const AT_RISK_WINDOW_DAYS = 7;\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst byHire = {};\nfor (const it of $('Expand the Checklist per Hire').all()) {\n  const r = it.json || {};\n  const k = r.hire_id;\n  if (!byHire[k]) byHire[k] = [];\n  byHire[k].push(r);\n}\n\nconst out = [];\n\nfor (const hireId of Object.keys(byHire)) {\n  const tasks = byHire[hireId];\n  const any = tasks[0];\n\n  const done = tasks.filter(function (t) { return t.status === 'done'; });\n  const blocked = tasks.filter(function (t) { return t.status === 'blocked'; });\n  const open = tasks.filter(function (t) { return t.status !== 'done' && t.status !== 'blocked'; });\n  const overdue = open.filter(function (t) { return Number(t.days_to_due) < 0; });\n  const mandatoryOpen = open.concat(blocked).filter(function (t) { return t.mandatory; });\n  const dayOneGaps = open.concat(blocked).filter(function (t) { return t.blocks_day_one; });\n\n  const daysToStart = Number(any.days_to_start);\n  const readiness = tasks.length ? Math.round((done.length / tasks.length) * 100) : 0;\n\n  let outcome = '';\n  let headline = '';\n\n  if (blocked.length) {\n    outcome = 'blocked';\n    headline = blocked.length + ' task(s) blocked and someone has to unblock them: ' +\n      blocked.map(function (t) { return t.task_name + ' (' + t.owner_team + ') - ' + (t.blocked_reason || 'no reason given'); }).join('; ');\n  } else if (!mandatoryOpen.length) {\n    outcome = 'ready';\n    headline = 'Every mandatory task is done. ' + any.hire_name + ' can start on ' + any.start_date + ' with an account, a desk and a laptop.';\n  } else if (dayOneGaps.length && daysToStart <= AT_RISK_WINDOW_DAYS) {\n    outcome = 'at_risk';\n    headline = daysToStart < 0\n      ? (any.hire_name + ' STARTED ' + (-daysToStart) + ' day(s) ago and still has ' + dayOneGaps.length + ' day-one task(s) outstanding.')\n      : (any.hire_name + ' starts in ' + daysToStart + ' day(s) with ' + dayOneGaps.length + ' day-one task(s) still open: ' +\n         dayOneGaps.map(function (t) { return t.task_name + ' (' + t.owner_team + ')'; }).join(', ') + '.');\n  } else {\n    outcome = 'on_track';\n    headline = readiness + '% complete, ' + daysToStart + ' day(s) to go. Nothing needs chasing yet.';\n  }\n\n  out.push({\n    json: {\n      hire_id: hireId,\n      hire_name: any.hire_name,\n      hire_role: any.hire_role,\n      hire_department: any.hire_department,\n      employment_type: any.employment_type,\n      manager: any.manager,\n      manager_email: any.manager_email,\n      start_date: any.start_date,\n      days_to_start: daysToStart,\n      outcome: outcome,\n      headline: headline,\n      readiness_pct: readiness,\n      task_total: tasks.length,\n      task_done: done.length,\n      task_open: open.length,\n      task_blocked: blocked.length,\n      task_overdue: overdue.length,\n      day_one_gaps: dayOneGaps.length,\n      newly_created: tasks.filter(function (t) { return t.is_new; }).length,\n      outstanding: open.concat(blocked).map(function (t) {\n        return {\n          task: t.task_name,\n          code: t.task_code,\n          owner: t.owner_team,\n          due: t.due_date,\n          days_to_due: t.days_to_due,\n          status: t.status,\n          blocks_day_one: t.blocks_day_one,\n          reason: t.blocked_reason\n        };\n      }).sort(function (a, b) { return a.days_to_due - b.days_to_due; }),\n      assessed_on: today,\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nout.sort(function (a, b) { return a.json.days_to_start - b.json.days_to_start; });\nreturn out;"
+      },
+      "notes": "A hire is only ready when every MANDATORY task is done. Blocked beats everything, because a blocked task is not a chasing problem and no amount of reminders will move it."
+    },
+    {
+      "id": "ddb151a4-93cc-44d7-a62a-d7a65c8d5305",
+      "name": "Route by Readiness",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        208
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "ready",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "k-r",
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "ready"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "on_track",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "k-o",
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "on_track"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "at_risk",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "k-a",
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "at_risk"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "blocked",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "k-b",
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "blocked"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unclassified"
+        }
+      }
+    },
+    {
+      "id": "50e8be30-75d0-4146-9f97-4785f085c713",
+      "name": "Confirm Ready for Day One",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cr-t",
+              "name": "artifact_type",
+              "value": "ready_confirmation",
+              "type": "string"
+            },
+            {
+              "id": "cr-m",
+              "name": "manager_message",
+              "value": "={{ $json.hire_name }} is ready for day one on {{ $json.start_date }}.\n\nAccount, laptop, desk and access card are all done. {{ $json.task_done }} of {{ $json.task_total }} checklist items complete.\n\nNothing needed from you. This is a confirmation, not a request.",
+              "type": "string"
+            },
+            {
+              "id": "cr-h",
+              "name": "human_touches",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "Worth sending. A manager who never hears anything cannot tell the difference between ready and forgotten."
+    },
+    {
+      "id": "b586cee5-689d-4410-81d1-c9aed9d1a175",
+      "name": "Collect Hire Outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1792,
+        288
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 4
+      }
+    },
+    {
+      "id": "2ce8ebe9-387b-43fc-a7c4-148e4956a415",
+      "name": "Note Quietly On Track",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        224
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ot-t",
+              "name": "artifact_type",
+              "value": "no_action",
+              "type": "string"
+            },
+            {
+              "id": "ot-l",
+              "name": "audit_line",
+              "value": "={{ $json.hire_name }}: no action. {{ $json.headline }}",
+              "type": "string"
+            },
+            {
+              "id": "ot-h",
+              "name": "human_touches",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "Deliberately silent. Someone 21 days out with an untouched checklist is not late, and mailing about it teaches everyone to ignore the mail."
+    },
+    {
+      "id": "ae2be2b8-c116-4f83-acfc-629e2b51569a",
+      "name": "Raise a Day-One Risk",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        416
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rr-t",
+              "name": "artifact_type",
+              "value": "day_one_risk",
+              "type": "string"
+            },
+            {
+              "id": "rr-m",
+              "name": "manager_message",
+              "value": "={{ $json.hire_name }} ({{ $json.hire_role }}) — {{ $json.days_to_start < 0 ? \"already started\" : \"starts in \" + $json.days_to_start + \" days\" }}\n\n{{ $json.headline }}\n\nOutstanding:\n{{ $json.outstanding.map(o => \"  \" + o.task + \"  ·  \" + o.owner + \"  ·  due \" + o.due + (o.days_to_due < 0 ? \"  (\" + (-o.days_to_due) + \" days late)\" : \"\") + (o.blocks_day_one ? \"  [needed for day one]\" : \"\")).join(\"\\n\") }}\n\nThe owning teams have been chased directly. This is so you are not surprised.",
+              "type": "string"
+            },
+            {
+              "id": "rr-s",
+              "name": "slack_message",
+              "value": "=*Day-one risk — {{ $json.hire_name }}*\n{{ $json.hire_role }}, {{ $json.days_to_start < 0 ? \"started \" + (-$json.days_to_start) + \" days ago\" : \"starts in \" + $json.days_to_start + \" days\" }}. {{ $json.readiness_pct }}% ready, {{ $json.day_one_gaps }} day-one gap(s).\n{{ $json.outstanding.filter(o => o.blocks_day_one).map(o => o.task + \" (\" + o.owner + \")\").join(\", \") }}",
+              "type": "string"
+            },
+            {
+              "id": "rr-h",
+              "name": "human_touches",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "Goes to the manager, not to the teams. The teams get their own digest; the manager gets one message about their person."
+    },
+    {
+      "id": "f145b8ba-81a6-42c3-bafe-99f51f0a36b1",
+      "name": "Escalate the Blocker",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        608
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "eb-t",
+              "name": "artifact_type",
+              "value": "blocker_escalation",
+              "type": "string"
+            },
+            {
+              "id": "eb-m",
+              "name": "manager_message",
+              "value": "={{ $json.hire_name }} is BLOCKED and chasing will not fix it.\n\n{{ $json.headline }}\n\n{{ $json.days_to_start < 0 ? \"They have already started.\" : \"They start in \" + $json.days_to_start + \" days, on \" + $json.start_date + \".\" }}\n\nA blocked task needs a decision from a person, not a reminder. Please look at this today.",
+              "type": "string"
+            },
+            {
+              "id": "eb-s",
+              "name": "slack_message",
+              "value": "=*BLOCKED — {{ $json.hire_name }}*\n{{ $json.days_to_start < 0 ? \"Already started.\" : \"Starts in \" + $json.days_to_start + \" days.\" }} {{ $json.task_blocked }} blocked task(s).\n{{ $json.outstanding.filter(o => o.status === \"blocked\").map(o => o.task + \" (\" + o.owner + \"): \" + o.reason).join(\" | \") }}\nThis one needs a decision, not a chase.",
+              "type": "string"
+            },
+            {
+              "id": "eb-h",
+              "name": "human_touches",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "Kept separate from at-risk on purpose. Blocked and late look the same on a dashboard and need completely different responses."
+    },
+    {
+      "id": "0e761eab-3e0c-4681-a6eb-8072e9a4f15b",
+      "name": "Tell the Manager",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1792,
+        576
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#people-ops"
+        },
+        "messageType": "text",
+        "text": "={{ $json.slack_message }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true,
+          "link_names": true
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. Only at-risk and blocked reach here; ready and on-track never ping anyone.",
+      "webhookId": "bd5d21e5-2d2a-45da-b6b1-4401b85f9058"
+    },
+    {
+      "id": "99aca5c5-3660-45cc-bb4f-0721fcfc11e5",
+      "name": "One Digest per Owner Team",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        128
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CHASE_GAP_DAYS = 2;\n\nconst today = new Date().toISOString().slice(0, 10);\n\nfunction dayDiff(fromIso, toIso) {\n  const a = Date.parse(String(fromIso) + 'T00:00:00Z');\n  const b = Date.parse(String(toIso) + 'T00:00:00Z');\n  if (isNaN(a) || isNaN(b)) return null;\n  return Math.round((b - a) / 86400000);\n}\n\nconst byOwner = {};\nfor (const it of $('Expand the Checklist per Hire').all()) {\n  const t = it.json || {};\n  if (t.status === 'done') continue;\n  const k = String(t.owner_team || 'Unassigned');\n  if (!byOwner[k]) byOwner[k] = [];\n  byOwner[k].push(t);\n}\n\nconst out = [];\n\nfor (const team of Object.keys(byOwner)) {\n  const tasks = byOwner[team];\n  const chased = tasks.filter(function (t) {\n    const since = t.last_chased_on ? dayDiff(t.last_chased_on, today) : null;\n    return since !== null && since < CHASE_GAP_DAYS;\n  });\n  const dueNow = tasks.filter(function (t) { return Number(t.days_to_due) <= 3; });\n  const overdue = tasks.filter(function (t) { return Number(t.days_to_due) < 0; });\n  const blockers = tasks.filter(function (t) { return t.blocks_day_one; });\n\n  const suppressed = chased.length === tasks.length && tasks.length > 0;\n\n  out.push({\n    json: {\n      owner_team: team,\n      owner_email: String(tasks[0].owner_email || ''),\n      task_count: tasks.length,\n      overdue_count: overdue.length,\n      due_soon_count: dueNow.length,\n      day_one_blocker_count: blockers.length,\n      hires_touched: Array.from(new Set(tasks.map(function (t) { return t.hire_name; }))).length,\n      urgency: overdue.length ? 'overdue' : (dueNow.length ? 'due_soon' : 'ahead'),\n      send_digest: !suppressed && (overdue.length > 0 || dueNow.length > 0),\n      suppressed_reason: suppressed ? ('Every outstanding task for ' + team + ' was already chased within the last ' + CHASE_GAP_DAYS + ' day(s).') : '',\n      lines: tasks.map(function (t) {\n        return {\n          hire: t.hire_name,\n          starts: t.start_date,\n          task: t.task_name,\n          due: t.due_date,\n          days_to_due: t.days_to_due,\n          status: t.status,\n          blocks_day_one: t.blocks_day_one,\n          reason: t.blocked_reason\n        };\n      }).sort(function (a, b) { return a.days_to_due - b.days_to_due; }),\n      assessed_on: today,\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nout.sort(function (a, b) { return b.json.overdue_count - a.json.overdue_count; });\nreturn out;"
+      },
+      "notes": "The second grouping, on a different axis from the first. Hires are grouped for the manager; tasks are grouped for the team that owes them. IT gets one mail listing everything IT owes across every hire.",
+      "executeOnce": true
+    },
+    {
+      "id": "282f32d0-6b7a-40a7-83b1-fced62738693",
+      "name": "Draft the Owner Digest",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        128
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dg-s",
+              "name": "email_subject",
+              "value": "=Onboarding: {{ $json.task_count }} item(s) with {{ $json.owner_team }}{{ $json.overdue_count ? \" — \" + $json.overdue_count + \" overdue\" : \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "dg-b",
+              "name": "email_body",
+              "value": "={{ $json.owner_team }} team,\n\nThese onboarding items are with you, across {{ $json.hires_touched }} new starter(s).\n\n{{ $json.lines.map(l => l.hire + \"  ·  \" + l.task + \"  ·  due \" + l.due + (l.days_to_due < 0 ? \"  (\" + (-l.days_to_due) + \" days late)\" : l.days_to_due === 0 ? \"  (today)\" : \"\") + (l.blocks_day_one ? \"  [blocks day one]\" : \"\") + (l.status === \"blocked\" ? \"  BLOCKED: \" + l.reason : \"\")).join(\"\\n\") }}\n\n{{ $json.day_one_blocker_count ? $json.day_one_blocker_count + \" of these stop someone working on their first day.\" : \"None of these block a first day.\" }}\n\nReply done and the item closes, or reply with what is stopping you.",
+              "type": "string"
+            },
+            {
+              "id": "dg-h",
+              "name": "human_touches",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "One mail per team per morning, not one per task. Six items for IT is one email, which is the difference between a system people read and one they filter."
+    },
+    {
+      "id": "2d87b438-ddae-4aca-9dc1-cb4cf6d238ea",
+      "name": "Email the Owning Team",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        128
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.owner_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email_body }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "People Ops"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled and credential-free so the demo runs for anyone.",
+      "webhookId": "1f01dede-ad76-482e-9fe6-26e6a388d9d2"
+    },
+    {
+      "id": "efabe150-797a-4f0b-ba79-c2b97eefb6fa",
+      "name": "Build the Onboarding Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const MINUTES_PER_MANUAL_TASK = 6;\n\nconst hires = $('Assess Readiness per Hire').all().map(function (i) { return i.json; });\nconst tasks = $('Expand the Checklist per Hire').all().map(function (i) { return i.json; });\nconst digests = $('One Digest per Owner Team').all().map(function (i) { return i.json; });\n\nfunction count(list, fn) { return list.filter(fn).length; }\n\nconst byTeam = {};\nfor (const t of tasks) {\n  const k = String(t.owner_team || 'Unassigned');\n  if (!byTeam[k]) byTeam[k] = { team: k, total: 0, done: 0, open: 0, blocked: 0, overdue: 0 };\n  byTeam[k].total = byTeam[k].total + 1;\n  if (t.status === 'done') byTeam[k].done = byTeam[k].done + 1;\n  else if (t.status === 'blocked') byTeam[k].blocked = byTeam[k].blocked + 1;\n  else {\n    byTeam[k].open = byTeam[k].open + 1;\n    if (Number(t.days_to_due) < 0) byTeam[k].overdue = byTeam[k].overdue + 1;\n  }\n}\nconst teams = Object.keys(byTeam).map(function (k) {\n  const r = byTeam[k];\n  return {\n    team: r.team,\n    total: r.total,\n    done: r.done,\n    open: r.open,\n    blocked: r.blocked,\n    overdue: r.overdue,\n    complete_pct: r.total ? Math.round((r.done / r.total) * 100) : 0\n  };\n}).sort(function (a, b) { return b.overdue - a.overdue; });\n\nconst created = count(tasks, function (t) { return t.is_new; });\n\nreturn [{\n  json: {\n    run_id: String($execution.id || 'manual'),\n    ran_on: new Date().toISOString().slice(0, 10),\n    hires_in_flight: hires.length,\n    ready: count(hires, function (h) { return h.outcome === 'ready'; }),\n    on_track: count(hires, function (h) { return h.outcome === 'on_track'; }),\n    at_risk: count(hires, function (h) { return h.outcome === 'at_risk'; }),\n    blocked: count(hires, function (h) { return h.outcome === 'blocked'; }),\n    tasks_total: tasks.length,\n    tasks_done: count(tasks, function (t) { return t.status === 'done'; }),\n    tasks_open: count(tasks, function (t) { return t.status !== 'done' && t.status !== 'blocked'; }),\n    tasks_blocked: count(tasks, function (t) { return t.status === 'blocked'; }),\n    tasks_overdue: count(tasks, function (t) { return t.status !== 'done' && Number(t.days_to_due) < 0; }),\n    tasks_created_this_run: created,\n    digests_sent: count(digests, function (d) { return d.send_digest; }),\n    digests_suppressed: count(digests, function (d) { return !d.send_digest; }),\n    coordinator_minutes_saved: tasks.length * MINUTES_PER_MANUAL_TASK,\n    by_team: teams,\n    starting_soon: hires.filter(function (h) { return Number(h.days_to_start) <= 14; })\n      .map(function (h) {\n        return {\n          name: h.hire_name,\n          role: h.hire_role,\n          starts: h.start_date,\n          in_days: h.days_to_start,\n          outcome: h.outcome,\n          readiness: h.readiness_pct,\n          headline: h.headline\n        };\n      }),\n    needs_a_human: hires.filter(function (h) { return h.outcome === 'at_risk' || h.outcome === 'blocked'; })\n      .map(function (h) {\n        return {\n          name: h.hire_name,\n          manager: h.manager,\n          starts: h.start_date,\n          in_days: h.days_to_start,\n          outcome: h.outcome,\n          why: h.headline,\n          outstanding: h.outstanding.map(function (o) { return o.task + ' (' + o.owner + ')'; }).join(', ')\n        };\n      })\n  }\n}];"
+      },
+      "notes": "Reads the assessment directly, so the report describes the state of onboarding rather than the state of the automation.",
+      "executeOnce": true
+    },
+    {
+      "id": "f6120ccd-58b6-4884-9cf3-29f257b5caff",
+      "name": "Format the Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        320
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fr-t",
+              "name": "report_title",
+              "value": "=Onboarding {{ $json.ran_on }} — {{ $json.hires_in_flight }} in flight, {{ $json.at_risk + $json.blocked }} need a human",
+              "type": "string"
+            },
+            {
+              "id": "fr-b",
+              "name": "report",
+              "value": "=*Onboarding — {{ $json.ran_on }}*\n{{ $json.hires_in_flight }} hires in flight. Ready {{ $json.ready }} · on track {{ $json.on_track }} · at risk {{ $json.at_risk }} · blocked {{ $json.blocked }}.\n{{ $json.tasks_total }} checklist items: {{ $json.tasks_done }} done, {{ $json.tasks_open }} open, {{ $json.tasks_blocked }} blocked, {{ $json.tasks_overdue }} overdue.\n{{ $json.tasks_created_this_run ? $json.tasks_created_this_run + \" item(s) were created automatically this morning from the checklist.\" : \"No new items needed creating.\" }}\n\n*Who needs a person today*\n{{ $json.needs_a_human.length ? $json.needs_a_human.map(n => \"- \" + n.name + \" (\" + n.outcome + \", \" + (n.in_days < 0 ? \"started \" + (-n.in_days) + \"d ago\" : \"in \" + n.in_days + \"d\") + \") — \" + n.outstanding).join(\"\\n\") : \"Nobody. Everything in flight is on track.\" }}\n\n*By team*\n{{ $json.by_team.map(t => t.team.padEnd(12) + String(t.complete_pct).padStart(3) + \"% done   open \" + t.open + \"   blocked \" + t.blocked + \"   overdue \" + t.overdue).join(\"\\n\") }}\n\n{{ $json.digests_sent }} team digest(s) went out, {{ $json.digests_suppressed }} held back as already chased or not yet due.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "notes": "Leads with who needs a human today, because that is the only part of this an HR lead has to act on."
+    },
+    {
+      "id": "c64010be-dd0d-4414-95e2-9efc22bf5db6",
+      "name": "Email the HR Lead",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        320
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "people-ops@example.com",
+        "subject": "={{ $json.report_title }}",
+        "emailType": "text",
+        "message": "={{ $json.report }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "People Ops"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. One message per run.",
+      "webhookId": "241557f3-5ba8-48fe-8246-79d4f4578525"
+    },
+    {
+      "id": "439d5def-df8b-4825-97d9-a20fc69cae87",
+      "name": "Sticky Note eb62ef91",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        608
+      ],
+      "parameters": {
+        "content": "## 1 · The checklist is data, not code\n\nThree tables: the hires, the checklist template, and the tasks actually outstanding.\n\nThe checklist is the point. Rows say what applies to everyone, what applies to a role, a department, or an employment type. HR adds one row to give every future mechanic a new induction step and nobody opens this workflow. A checklist buried in a Code node is a checklist that goes stale.",
+        "color": 4
+      }
+    },
+    {
+      "id": "396647a9-85f7-460a-adb6-1f41cf3ff930",
+      "name": "Sticky Note a0da9f88",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        864
+      ],
+      "parameters": {
+        "content": "## 2 · Work out what each person needs, then create only what is missing\n\nSix hires and twelve checklist rows become the exact task list each person needs. A cancelled offer is skipped, and the reason is recorded rather than hidden in a query.\n\nOnly rows that do not exist yet are written, keyed on hire plus task code. A task somebody already completed is never reset to open by a later run, and running twice in one morning cannot create a duplicate.",
+        "color": 3
+      }
+    },
+    {
+      "id": "8e82f56c-478c-4945-8ff2-fcc5466a0649",
+      "name": "Sticky Note fa0a92dc",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        1120
+      ],
+      "parameters": {
+        "content": "## 3 · Ready, on track, at risk, blocked\n\nReady means every MANDATORY item is done — not every item. Blocked beats everything else, because a blocked task is not a chasing problem and no number of reminders will move it. Those two get very different messages on purpose: dashboards show late and blocked the same colour, and they need opposite responses.\n\nSomeone three weeks out with an untouched checklist is deliberately silent. Mailing about them teaches everyone to ignore the mail.",
+        "color": 5
+      }
+    },
+    {
+      "id": "67abe859-bc47-4f23-995a-994cf3b7787e",
+      "name": "Sticky Note 0c3a5dd9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        1376
+      ],
+      "parameters": {
+        "content": "## 4 · Grouped twice, on two different axes\n\nHires are grouped for the MANAGER — one message about their person. Tasks are grouped for the TEAM that owes them — IT gets a single mail listing everything IT owes across every new starter.\n\nThat is the difference between a system people read and one they filter. A team already chased in the last two days is skipped entirely.",
+        "color": 6
+      }
+    },
+    {
+      "id": "585b9f54-16b0-4831-b646-f66456880284",
+      "name": "Sticky Note 11b88262",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        1632
+      ],
+      "parameters": {
+        "content": "## 5 · Where it goes\n\nAll three are switched off and carry no credential, wired as side branches so the report and the task writes behave identically whether they are on.\n\nReady and on-track never ping anyone. Only at-risk and blocked reach Slack.",
+        "color": 7
+      }
+    },
+    {
+      "id": "ee82946f-fcc3-4f75-a3d8-ee315b004de4",
+      "name": "Only Teams Worth Chasing",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        128
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f-send",
+              "leftValue": "={{ $json.send_digest }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "notes": "The suppression is decided in the engine and enforced here. Without this node the flag is a comment: every team gets mailed every morning and the report quietly claims otherwise."
+    }
+  ],
+  "connections": {
+    "Every Morning": {
+      "main": [
+        [
+          {
+            "node": "Load New Hires",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load New Hires": {
+      "main": [
+        [
+          {
+            "node": "Load Onboarding Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Demo Now": {
+      "main": [
+        [
+          {
+            "node": "Load New Hires",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Onboarding Checklist": {
+      "main": [
+        [
+          {
+            "node": "Load Existing Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Tasks": {
+      "main": [
+        [
+          {
+            "node": "Expand the Checklist per Hire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand the Checklist per Hire": {
+      "main": [
+        [
+          {
+            "node": "Only Tasks Not Yet Created",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Assess Readiness per Hire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only Tasks Not Yet Created": {
+      "main": [
+        [
+          {
+            "node": "Create the Missing Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Readiness per Hire": {
+      "main": [
+        [
+          {
+            "node": "Route by Readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Readiness": {
+      "main": [
+        [
+          {
+            "node": "Confirm Ready for Day One",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Note Quietly On Track",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Raise a Day-One Risk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Escalate the Blocker",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Note Quietly On Track",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Ready for Day One": {
+      "main": [
+        [
+          {
+            "node": "Collect Hire Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Hire Outcomes": {
+      "main": [
+        [
+          {
+            "node": "One Digest per Owner Team",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build the Onboarding Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note Quietly On Track": {
+      "main": [
+        [
+          {
+            "node": "Collect Hire Outcomes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Raise a Day-One Risk": {
+      "main": [
+        [
+          {
+            "node": "Collect Hire Outcomes",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Tell the Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalate the Blocker": {
+      "main": [
+        [
+          {
+            "node": "Collect Hire Outcomes",
+            "type": "main",
+            "index": 3
+          },
+          {
+            "node": "Tell the Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Digest per Owner Team": {
+      "main": [
+        [
+          {
+            "node": "Draft the Owner Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the Onboarding Report": {
+      "main": [
+        [
+          {
+            "node": "Format the Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format the Report": {
+      "main": [
+        [
+          {
+            "node": "Email the HR Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft the Owner Digest": {
+      "main": [
+        [
+          {
+            "node": "Only Teams Worth Chasing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only Teams Worth Chasing": {
+      "main": [
+        [
+          {
+            "node": "Email the Owning Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}

@@ -11,6 +11,7 @@ every run instead of only the happy path.
 |---|---|---|
 | [**Invoice Processing & 3-Way Match**](ap-3way-match/) | Accounts payable. Validates each invoice, blocks duplicates, matches it against the purchase order *and* the goods receipt, applies a price tolerance, then routes by value to touchless posting, one approver, or an exception queue owned by a named team. | 9 invoices → 1 posted with no human touch, 2 to an approver, 6 held with the reason and the owning team attached |
 | [**AR Collections & Dunning**](ar-collections/) | Accounts receivable. Ages the book, holds back anything disputed or under a live promise to pay, escalates broken promises, respects a contact cadence, and chases per **customer** rather than per invoice. | 12 open invoices → 4 emails, not 12. Run it twice and the second run correctly sends nothing |
+| [**Employee Onboarding Coordinator**](hr-onboarding/) | People ops. Derives each new hire's tasks from a checklist **held as data**, creates what is missing, and chases each owning team once with everything it owes — while telling the manager who will not be ready on day one. | 6 hires × a 12-row checklist → the exact 41 tasks those people need, 8 of them created automatically |
 
 ## What these are meant to show
 
@@ -25,9 +26,13 @@ wrong is how finance automation does more damage than doing nothing.
 **Not acting is recorded too.** Restraint that leaves no trace is indistinguishable from a
 broken workflow.
 
-**They are idempotent.** Both write to state they later read, so both were run twice before
-being believed. Two of the three real defects found during the AP build were invisible on
-the first run; each README says what they were.
+**They are idempotent.** All three write to state they later read, so each was run twice
+before being believed. Several of the real defects found while building were invisible on
+the first run, and the runs were green when they were found — they turned up by counting the
+items leaving each node. Each README says what they were.
+
+**Configuration is data where it should be.** The onboarding checklist is a table, not a Code
+node, so the people who own the process can change it without touching a workflow.
 
 **The destination nodes are real nodes, switched off.** Xero, Slack and Gmail appear where
 the output would actually land, wired as side branches so the data path is unchanged whether

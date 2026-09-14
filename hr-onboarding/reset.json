@@ -1,0 +1,479 @@
+{
+  "name": "[PORTFOLIO] Reset Onboarding Demo",
+  "nodes": [
+    {
+      "id": "f9408829-9328-4525-863a-a61c5428e75e",
+      "name": "Reseed the Onboarding Demo",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "5e40d2dd-ba17-4f31-a1d4-21fb463afe5b",
+      "name": "Clear Onboarding Tasks",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "EDMOX1EysFgCdKXx",
+          "cachedResultName": "HR Onboarding Tasks"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "Wiped so one hire deliberately has no tasks at all, which is what makes the main workflow demonstrate creating them from the checklist.",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "68c6a81d-89c9-4099-8916-fc9200147267",
+      "name": "Build the Demo Dataset",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function iso(offsetDays) {\n  const t = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');\n  return new Date(t + offsetDays * 86400000).toISOString().slice(0, 10);\n}\n\nconst hires = [\n  { hire_id: 'H-001', full_name: 'Rizky Pratama', role: 'Sales Executive', department: 'Sales', employment_type: 'permanent', manager: 'Rina W.', manager_email: 'rina@example.com', personal_email: 'rizky.pratama@example.com', start_offset_seed: 10, status: 'pending', note: 'Everything mandatory is already done.' },\n  { hire_id: 'H-002', full_name: 'Dewi Lestari', role: 'Mechanic', department: 'Workshop', employment_type: 'permanent', manager: 'Fajar H.', manager_email: 'fajar@example.com', personal_email: 'dewi.lestari@example.com', start_offset_seed: 3, status: 'pending', note: 'Starts in three days with day-one items open.' },\n  { hire_id: 'H-003', full_name: 'Agus Salim', role: 'Admin Staff', department: 'Administration', employment_type: 'contract', manager: 'Sari P.', manager_email: 'sari@example.com', personal_email: 'agus.salim@example.com', start_offset_seed: 1, status: 'pending', note: 'Has a genuinely blocked task that no amount of chasing will fix.' },\n  { hire_id: 'H-004', full_name: 'Putri Handayani', role: 'Sales Executive', department: 'Sales', employment_type: 'permanent', manager: 'Rina W.', manager_email: 'rina@example.com', personal_email: 'putri.handayani@example.com', start_offset_seed: 21, status: 'pending', note: 'No tasks exist yet - this run creates them from the checklist.' },\n  { hire_id: 'H-005', full_name: 'Bayu Nugroho', role: 'Mechanic', department: 'Workshop', employment_type: 'permanent', manager: 'Fajar H.', manager_email: 'fajar@example.com', personal_email: 'bayu.nugroho@example.com', start_offset_seed: -4, status: 'active', note: 'Already started and still missing a laptop and a safety induction.' },\n  { hire_id: 'H-006', full_name: 'Indah Permata', role: 'Sales Executive', department: 'Sales', employment_type: 'permanent', manager: 'Rina W.', manager_email: 'rina@example.com', personal_email: 'indah.permata@example.com', start_offset_seed: 14, status: 'cancelled', note: 'Offer withdrawn. Must be skipped entirely, not chased.' }\n];\n\nconst checklist = [\n  { applies_to: 'ALL', task_code: 'HR-CONTRACT', task_name: 'Signed contract returned', owner_team: 'HR', owner_email: 'hr@example.com', lead_days: 7, mandatory: true, blocks_day_one: true },\n  { applies_to: 'ALL', task_code: 'HR-DATA', task_name: 'Personal data and bank details on file', owner_team: 'HR', owner_email: 'hr@example.com', lead_days: 5, mandatory: true, blocks_day_one: false },\n  { applies_to: 'ALL', task_code: 'IT-EMAIL', task_name: 'Email account created', owner_team: 'IT', owner_email: 'it@example.com', lead_days: 3, mandatory: true, blocks_day_one: true },\n  { applies_to: 'ALL', task_code: 'IT-LAPTOP', task_name: 'Laptop imaged and issued', owner_team: 'IT', owner_email: 'it@example.com', lead_days: 2, mandatory: true, blocks_day_one: true },\n  { applies_to: 'ALL', task_code: 'FAC-DESK', task_name: 'Desk allocated and access card cut', owner_team: 'Facilities', owner_email: 'facilities@example.com', lead_days: 1, mandatory: true, blocks_day_one: true },\n  { applies_to: 'ALL', task_code: 'HR-INDUCT', task_name: 'Company induction booked', owner_team: 'HR', owner_email: 'hr@example.com', lead_days: 1, mandatory: false, blocks_day_one: false },\n  { applies_to: 'ROLE:Sales Executive', task_code: 'CRM-ACCT', task_name: 'CRM account and pipeline access', owner_team: 'IT', owner_email: 'it@example.com', lead_days: 2, mandatory: true, blocks_day_one: true },\n  { applies_to: 'ROLE:Sales Executive', task_code: 'SLS-TRAIN', task_name: 'Product training scheduled', owner_team: 'Sales', owner_email: 'sales-manager@example.com', lead_days: 0, mandatory: false, blocks_day_one: false },\n  { applies_to: 'DEPT:Workshop', task_code: 'SFT-INDUCT', task_name: 'Safety induction completed', owner_team: 'Workshop', owner_email: 'workshop@example.com', lead_days: 1, mandatory: true, blocks_day_one: true },\n  { applies_to: 'DEPT:Workshop', task_code: 'WS-TOOLS', task_name: 'Tool kit issued', owner_team: 'Workshop', owner_email: 'workshop@example.com', lead_days: 0, mandatory: true, blocks_day_one: false },\n  { applies_to: 'DEPT:Workshop', task_code: 'WS-PPE', task_name: 'PPE issued - boots, gloves, eye protection', owner_team: 'Facilities', owner_email: 'facilities@example.com', lead_days: 1, mandatory: true, blocks_day_one: true },\n  { applies_to: 'TYPE:contract', task_code: 'FIN-CONTRACT', task_name: 'Contractor payment schedule set up', owner_team: 'Finance', owner_email: 'finance@example.com', lead_days: 3, mandatory: true, blocks_day_one: false }\n];\n\nconst seededTasks = [\n  { hire_id: 'H-001', task_code: 'HR-CONTRACT', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-001', task_code: 'HR-DATA', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-001', task_code: 'IT-EMAIL', status: 'done', by: 'IT Helpdesk' },\n  { hire_id: 'H-001', task_code: 'IT-LAPTOP', status: 'done', by: 'IT Helpdesk' },\n  { hire_id: 'H-001', task_code: 'FAC-DESK', status: 'done', by: 'Facilities' },\n  { hire_id: 'H-001', task_code: 'HR-INDUCT', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-001', task_code: 'CRM-ACCT', status: 'done', by: 'IT Helpdesk' },\n  { hire_id: 'H-001', task_code: 'SLS-TRAIN', status: 'open', by: '' },\n  { hire_id: 'H-002', task_code: 'HR-CONTRACT', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-002', task_code: 'HR-DATA', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-002', task_code: 'IT-EMAIL', status: 'done', by: 'IT Helpdesk' },\n  { hire_id: 'H-002', task_code: 'IT-LAPTOP', status: 'done', by: 'IT Helpdesk' },\n  { hire_id: 'H-002', task_code: 'FAC-DESK', status: 'open', by: '' },\n  { hire_id: 'H-002', task_code: 'HR-INDUCT', status: 'open', by: '' },\n  { hire_id: 'H-002', task_code: 'SFT-INDUCT', status: 'open', by: '' },\n  { hire_id: 'H-002', task_code: 'WS-TOOLS', status: 'open', by: '' },\n  { hire_id: 'H-002', task_code: 'WS-PPE', status: 'open', by: '' },\n  { hire_id: 'H-003', task_code: 'HR-CONTRACT', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-003', task_code: 'HR-DATA', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-003', task_code: 'IT-EMAIL', status: 'blocked', by: '', reason: 'Legal name on the signed contract does not match the ID card, so the account cannot be created. HR and the candidate have to agree the spelling first.' },\n  { hire_id: 'H-003', task_code: 'IT-LAPTOP', status: 'open', by: '' },\n  { hire_id: 'H-003', task_code: 'FAC-DESK', status: 'open', by: '' },\n  { hire_id: 'H-003', task_code: 'HR-INDUCT', status: 'open', by: '' },\n  { hire_id: 'H-003', task_code: 'FIN-CONTRACT', status: 'open', by: '', chased_today: true },\n  { hire_id: 'H-005', task_code: 'HR-CONTRACT', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-005', task_code: 'HR-DATA', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-005', task_code: 'IT-EMAIL', status: 'done', by: 'IT Helpdesk' },\n  { hire_id: 'H-005', task_code: 'IT-LAPTOP', status: 'open', by: '' },\n  { hire_id: 'H-005', task_code: 'FAC-DESK', status: 'done', by: 'Facilities' },\n  { hire_id: 'H-005', task_code: 'HR-INDUCT', status: 'done', by: 'Sari P.' },\n  { hire_id: 'H-005', task_code: 'SFT-INDUCT', status: 'open', by: '' },\n  { hire_id: 'H-005', task_code: 'WS-TOOLS', status: 'done', by: 'Workshop' },\n  { hire_id: 'H-005', task_code: 'WS-PPE', status: 'done', by: 'Facilities' }\n];\n\nconst out = [];\nconst hireById = {};\n\nfor (const h of hires) {\n  hireById[h.hire_id] = h;\n  out.push({\n    json: {\n      _table: 'hires',\n      hire_id: h.hire_id,\n      full_name: h.full_name,\n      role: h.role,\n      department: h.department,\n      employment_type: h.employment_type,\n      manager: h.manager,\n      manager_email: h.manager_email,\n      personal_email: h.personal_email,\n      start_date: iso(h.start_offset_seed),\n      status: h.status,\n      start_offset_seed: h.start_offset_seed,\n      note: h.note\n    }\n  });\n}\n\nfor (const c of checklist) {\n  out.push({\n    json: {\n      _table: 'checklist',\n      template_key: c.applies_to + '|' + c.task_code,\n      applies_to: c.applies_to,\n      task_code: c.task_code,\n      task_name: c.task_name,\n      owner_team: c.owner_team,\n      owner_email: c.owner_email,\n      lead_days: c.lead_days,\n      mandatory: c.mandatory,\n      blocks_day_one: c.blocks_day_one\n    }\n  });\n}\n\nconst tmplByCode = {};\nfor (const c of checklist) tmplByCode[c.task_code] = c;\n\nfor (const t of seededTasks) {\n  const h = hireById[t.hire_id];\n  const c = tmplByCode[t.task_code];\n  const dueOffset = h.start_offset_seed - c.lead_days;\n  out.push({\n    json: {\n      _table: 'tasks',\n      task_key: t.hire_id + '|' + t.task_code,\n      hire_id: t.hire_id,\n      task_code: t.task_code,\n      task_name: c.task_name,\n      owner_team: c.owner_team,\n      owner_email: c.owner_email,\n      due_date: iso(dueOffset),\n      status: t.status,\n      completed_on: t.status === 'done' ? iso(dueOffset - 1) : '',\n      completed_by: t.by || '',\n      blocked_reason: t.reason || '',\n      mandatory: c.mandatory,\n      blocks_day_one: c.blocks_day_one,\n      created_on: iso(h.start_offset_seed - 30),\n      last_chased_on: t.chased_today ? iso(0) : ''\n    }\n  });\n}\n\nreturn out;"
+      },
+      "notes": "Start dates are computed from today, so the demo keeps its shape whenever it is run rather than aging into every hire having started months ago.",
+      "executeOnce": true
+    },
+    {
+      "id": "32fbe86d-27f5-414a-8a4f-c63e3fd7baec",
+      "name": "Route by Table",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        176
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "hires",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "s-h",
+                    "leftValue": "={{ $json._table }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "hires"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "checklist",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "s-c",
+                    "leftValue": "={{ $json._table }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "checklist"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "tasks",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "s-t",
+                    "leftValue": "={{ $json._table }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "tasks"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ea784ccc-edb1-433d-b2c4-69d3981f968e",
+      "name": "Upsert New Hires",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gm82eMzb2E5jC5Kv",
+          "cachedResultName": "HR New Hires"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "hire_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.hire_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "hire_id"
+          ],
+          "value": {
+            "hire_id": "={{ $json.hire_id }}",
+            "full_name": "={{ $json.full_name }}",
+            "role": "={{ $json.role }}",
+            "department": "={{ $json.department }}",
+            "employment_type": "={{ $json.employment_type }}",
+            "manager": "={{ $json.manager }}",
+            "manager_email": "={{ $json.manager_email }}",
+            "personal_email": "={{ $json.personal_email }}",
+            "start_date": "={{ $json.start_date }}",
+            "status": "={{ $json.status }}",
+            "start_offset_seed": "={{ $json.start_offset_seed }}",
+            "note": "={{ $json.note }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ce6ceb35-5d67-4c56-8fc8-707aacdb5fe3",
+      "name": "Collect Seed Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        176
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3
+      }
+    },
+    {
+      "id": "b89b1100-2f4b-4047-9f02-37fba29e4731",
+      "name": "Upsert the Checklist",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "plGIvwfs3LbSSVO6",
+          "cachedResultName": "HR Onboarding Checklist"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "template_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.template_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "template_key"
+          ],
+          "value": {
+            "template_key": "={{ $json.template_key }}",
+            "applies_to": "={{ $json.applies_to }}",
+            "task_code": "={{ $json.task_code }}",
+            "task_name": "={{ $json.task_name }}",
+            "owner_team": "={{ $json.owner_team }}",
+            "owner_email": "={{ $json.owner_email }}",
+            "lead_days": "={{ $json.lead_days }}",
+            "mandatory": "={{ $json.mandatory }}",
+            "blocks_day_one": "={{ $json.blocks_day_one }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f7a4698c-f2b3-4f60-804e-a826d92fb653",
+      "name": "Upsert Task Progress",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        384
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "EDMOX1EysFgCdKXx",
+          "cachedResultName": "HR Onboarding Tasks"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "task_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.task_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "task_key"
+          ],
+          "value": {
+            "task_key": "={{ $json.task_key }}",
+            "hire_id": "={{ $json.hire_id }}",
+            "task_code": "={{ $json.task_code }}",
+            "task_name": "={{ $json.task_name }}",
+            "owner_team": "={{ $json.owner_team }}",
+            "owner_email": "={{ $json.owner_email }}",
+            "due_date": "={{ $json.due_date }}",
+            "status": "={{ $json.status }}",
+            "completed_on": "={{ $json.completed_on }}",
+            "completed_by": "={{ $json.completed_by }}",
+            "blocked_reason": "={{ $json.blocked_reason }}",
+            "mandatory": "={{ $json.mandatory }}",
+            "blocks_day_one": "={{ $json.blocks_day_one }}",
+            "created_on": "={{ $json.created_on }}",
+            "last_chased_on": "={{ $json.last_chased_on }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e92903d5-7baf-4e27-a2fb-dca7cfa1b06a",
+      "name": "Confirm Reseed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        192
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c-msg",
+              "name": "result",
+              "value": "=Onboarding demo reseeded against {{ $now.toFormat(\"yyyy-LL-dd\") }}. Six hires, twelve checklist rows, and one hire deliberately left with no tasks so the main workflow has something to create.",
+              "type": "string"
+            },
+            {
+              "id": "c-rows",
+              "name": "rows_written",
+              "value": "={{ $input.all().length }}",
+              "type": "number"
+            },
+            {
+              "id": "c-cleared",
+              "name": "tasks_cleared",
+              "value": "={{ $(\"Clear Onboarding Tasks\").all().filter(r => r.json.task_key).length }}",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "e7209952-f4ab-4994-b83c-bbee80b9f269",
+      "name": "Sticky Note 7159b83e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        608,
+        384
+      ],
+      "parameters": {
+        "content": "## Reset the onboarding demo\n\nRun this before the main workflow.\n\nStart dates are computed from today rather than stored fixed, so one hire is always starting tomorrow and one has always already started. Without that the demo ages into every hire having begun months ago and the whole readiness picture goes flat.\n\nIt wipes the task table on purpose: H-004 is left with no tasks at all, which is what gives the main workflow something to derive from the checklist.",
+        "color": 3
+      }
+    }
+  ],
+  "connections": {
+    "Reseed the Onboarding Demo": {
+      "main": [
+        [
+          {
+            "node": "Clear Onboarding Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Onboarding Tasks": {
+      "main": [
+        [
+          {
+            "node": "Build the Demo Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the Demo Dataset": {
+      "main": [
+        [
+          {
+            "node": "Route by Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Table": {
+      "main": [
+        [
+          {
+            "node": "Upsert New Hires",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upsert the Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upsert Task Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert New Hires": {
+      "main": [
+        [
+          {
+            "node": "Collect Seed Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Seed Results": {
+      "main": [
+        [
+          {
+            "node": "Confirm Reseed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert the Checklist": {
+      "main": [
+        [
+          {
+            "node": "Collect Seed Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Upsert Task Progress": {
+      "main": [
+        [
+          {
+            "node": "Collect Seed Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}

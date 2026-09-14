@@ -231,7 +231,7 @@
             {
               "id": "cr-rows",
               "name": "rows_deleted",
-              "value": "={{ $(\"Clear Invoice Ledger\").all().length }}",
+              "value": "={{ $(\"Clear Invoice Ledger\").all().filter(r => r.json.invoice_key).length }}",
               "type": "number"
             }
           ]
