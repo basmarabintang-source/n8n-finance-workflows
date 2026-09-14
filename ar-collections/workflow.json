@@ -1,0 +1,911 @@
+{
+  "name": "[PORTFOLIO] AR Collections and Dunning",
+  "nodes": [
+    {
+      "id": "7b9d8684-8725-432f-b800-49a89ef4bb31",
+      "name": "Every Working Morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        256
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "notes": "Collections is a daily rhythm. Chasing at a random hour reads as automated; 08:00 reads as someone starting their day."
+    },
+    {
+      "id": "735b072f-8835-4b29-b9bc-f5da51aed3bd",
+      "name": "Load Customers",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        256
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "SjTax7NJQPsr4iCE",
+          "cachedResultName": "AR Customers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "Who to write to, who owns the account, and what credit limit they were given."
+    },
+    {
+      "id": "7df542c3-e641-4123-bcc9-b5efd185f78f",
+      "name": "Run Demo Now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        448
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "3f34a937-c993-4cc5-b2e2-2297217e7b54",
+      "name": "Load Open Invoices",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        256
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "eNE8oOoy5tFGeso4",
+          "cachedResultName": "AR Open Invoices"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "executeOnce, or this runs once per customer row arriving from the previous node.",
+      "executeOnce": true
+    },
+    {
+      "id": "e7529e6a-bfb1-4a6d-8745-e05c57de93a6",
+      "name": "Load Collection History",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        256
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "bXSj9v9hpxqmQ6xg",
+          "cachedResultName": "AR Collection Log"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "This is the memory between runs. Without it the workflow would chase the same customer every single morning.",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "2bc48eff-6a4b-481a-bd5a-058ba8565740",
+      "name": "Assess Every Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        256
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const COURTESY_MIN_AMOUNT = 100000000;\nconst COURTESY_WINDOW_DAYS = 3;\nconst MANAGER_NOTIFY_AMOUNT = 50000000;\n\nfunction toNum(v) {\n  if (v === null || v === undefined || v === '') return 0;\n  const n = Number(String(v).split(',').join(''));\n  return isNaN(n) ? 0 : n;\n}\nfunction dayDiff(fromIso, toIso) {\n  const a = Date.parse(String(fromIso) + 'T00:00:00Z');\n  const b = Date.parse(String(toIso) + 'T00:00:00Z');\n  if (isNaN(a) || isNaN(b)) return null;\n  return Math.round((b - a) / 86400000);\n}\nfunction stageFor(daysOverdue) {\n  if (daysOverdue <= 0) return 'courtesy';\n  if (daysOverdue <= 7) return 'reminder';\n  if (daysOverdue <= 21) return 'firm';\n  if (daysOverdue <= 45) return 'final';\n  return 'legal';\n}\nfunction bucketFor(daysOverdue) {\n  if (daysOverdue <= 0) return 'current';\n  if (daysOverdue <= 30) return '1-30';\n  if (daysOverdue <= 60) return '31-60';\n  if (daysOverdue <= 90) return '61-90';\n  return '90+';\n}\nfunction harder(stage) {\n  const ladder = ['courtesy', 'reminder', 'firm', 'final', 'legal'];\n  const i = ladder.indexOf(stage);\n  if (i < 0) return stage;\n  return ladder[i + 1 < ladder.length ? i + 1 : ladder.length - 1];\n}\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst custById = {};\nfor (const it of $('Load Customers').all()) {\n  const c = it.json || {};\n  if (!c.customer_id) continue;\n  custById[String(c.customer_id).trim().toUpperCase()] = c;\n}\n\nconst out = [];\n\nfor (const it of $('Load Open Invoices').all()) {\n  const inv = it.json || {};\n  const invoiceNumber = String(inv.invoice_number || '').trim();\n  const customerId = String(inv.customer_id || '').trim().toUpperCase();\n  const dueDate = String(inv.due_date || '').trim();\n  const amount = toNum(inv.amount);\n  const amountPaid = toNum(inv.amount_paid);\n  const outstanding = amount - amountPaid;\n  const status = String(inv.status || 'open').trim().toLowerCase();\n  const promiseDate = String(inv.promise_date || '').trim();\n  const disputeReason = String(inv.dispute_reason || '').trim();\n  const cust = custById[customerId] || null;\n\n  const daysOverdue = dayDiff(dueDate, today);\n\n  const problems = [];\n  if (!invoiceNumber) problems.push('invoice number is missing');\n  if (!customerId) problems.push('customer reference is missing');\n  if (!cust) problems.push('customer ' + (customerId || '(blank)') + ' is not in the customer master');\n  if (daysOverdue === null) problems.push('due date is missing or unreadable');\n  if (!(amount > 0)) problems.push('invoice amount must be greater than zero');\n  if (amountPaid < 0) problems.push('amount paid cannot be negative');\n\n  let chaseable = false;\n  let stage = '';\n  let holdReason = '';\n  let outcome = '';\n  let brokenPromise = false;\n\n  if (problems.length) {\n    outcome = 'data_problem';\n    holdReason = 'Not chased: ' + problems.join('; ') + '. A wrong chase costs more goodwill than a late one.';\n  } else if (outstanding <= 0) {\n    outcome = 'settled';\n    holdReason = 'Settled in full on ' + amount + '. Nothing to collect.';\n  } else if (status === 'disputed' || disputeReason) {\n    outcome = 'disputed';\n    holdReason = 'In dispute, so it is never dunned: ' + (disputeReason || 'no reason recorded') + ' Chasing a disputed invoice is how you lose the customer and the argument.';\n  } else if (status === 'promised' && promiseDate && dayDiff(today, promiseDate) !== null && dayDiff(today, promiseDate) >= 0) {\n    outcome = 'promise_held';\n    holdReason = 'Customer promised to pay by ' + promiseDate + ', which has not passed yet. Chasing before the promise date breaks trust for nothing.';\n  } else if (status === 'promised') {\n    outcome = 'broken_promise';\n    brokenPromise = true;\n    chaseable = true;\n    stage = harder(stageFor(daysOverdue));\n    holdReason = '';\n  } else if (daysOverdue <= 0) {\n    if (outstanding >= COURTESY_MIN_AMOUNT && daysOverdue >= -COURTESY_WINDOW_DAYS) {\n      outcome = 'courtesy_due_soon';\n      chaseable = true;\n      stage = 'courtesy';\n    } else {\n      outcome = 'not_due';\n      holdReason = 'Not due for another ' + (-daysOverdue) + ' days, and under the ' + COURTESY_MIN_AMOUNT + ' courtesy threshold.';\n    }\n  } else {\n    outcome = 'overdue';\n    chaseable = true;\n    stage = stageFor(daysOverdue);\n  }\n\n  out.push({\n    json: {\n      invoice_number: invoiceNumber,\n      customer_id: customerId,\n      customer_name: cust ? String(cust.name || '') : '',\n      contact_name: cust ? String(cust.contact_name || '') : '',\n      contact_email: cust ? String(cust.contact_email || '') : '',\n      account_manager: cust ? String(cust.account_manager || '') : '',\n      account_manager_slack: cust ? String(cust.account_manager_slack || '') : '',\n      credit_limit: cust ? toNum(cust.credit_limit) : 0,\n      risk_rating: cust ? String(cust.risk_rating || '') : '',\n      payment_terms: cust ? String(cust.payment_terms || '') : '',\n      issue_date: String(inv.issue_date || ''),\n      due_date: dueDate,\n      po_reference: String(inv.po_reference || ''),\n      amount: amount,\n      amount_paid: amountPaid,\n      outstanding: outstanding > 0 ? outstanding : 0,\n      currency: String(inv.currency || 'IDR'),\n      status: status,\n      promise_date: promiseDate,\n      dispute_reason: disputeReason,\n      days_overdue: daysOverdue === null ? 0 : daysOverdue,\n      aging_bucket: daysOverdue === null ? 'unknown' : bucketFor(daysOverdue),\n      stage: stage,\n      chaseable: chaseable,\n      broken_promise: brokenPromise,\n      outcome: outcome,\n      hold_reason: holdReason,\n      notify_manager_threshold: MANAGER_NOTIFY_AMOUNT,\n      assessed_on: today,\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nreturn out;"
+      },
+      "notes": "Every reason NOT to chase lives here, ahead of every reason to chase. Getting that order wrong is how automated collections burns customers."
+    },
+    {
+      "id": "650d5e91-b87e-4c7a-8ae6-ad2a0e01c010",
+      "name": "One Message per Customer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        256
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const CADENCE_DAYS = { courtesy: 7, reminder: 5, firm: 4, final: 3, legal: 3 };\nconst LADDER = ['courtesy', 'reminder', 'firm', 'final', 'legal'];\n\nfunction dayDiff(fromIso, toIso) {\n  const a = Date.parse(String(fromIso) + 'T00:00:00Z');\n  const b = Date.parse(String(toIso) + 'T00:00:00Z');\n  if (isNaN(a) || isNaN(b)) return null;\n  return Math.round((b - a) / 86400000);\n}\nfunction rank(stage) {\n  const i = LADDER.indexOf(stage);\n  return i < 0 ? -1 : i;\n}\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst lastContact = {};\nfor (const it of $('Load Collection History').all()) {\n  const r = it.json || {};\n  if (!r.customer_id || !r.sent_on) continue;\n  if (String(r.action || '') !== 'chased') continue;\n  const k = String(r.customer_id).trim().toUpperCase();\n  const prev = lastContact[k];\n  if (!prev || String(r.sent_on) > String(prev.sent_on)) lastContact[k] = r;\n}\n\nconst byCustomer = {};\nfor (const it of $('Assess Every Invoice').all()) {\n  const r = it.json || {};\n  const k = String(r.customer_id || '(unknown)').trim().toUpperCase();\n  if (!byCustomer[k]) byCustomer[k] = { rows: [], chase: [], held: [] };\n  byCustomer[k].rows.push(r);\n  if (r.chaseable) byCustomer[k].chase.push(r); else byCustomer[k].held.push(r);\n}\n\nconst out = [];\n\nfor (const k of Object.keys(byCustomer)) {\n  const g = byCustomer[k];\n  const any = g.rows[0];\n  const chase = g.chase;\n  const held = g.held;\n\n  const heldNote = held.map(function (r) {\n    return r.invoice_number + ' (' + r.outcome + ') ' + r.hold_reason;\n  }).join(' | ');\n\n  if (!chase.length) {\n    out.push({\n      json: {\n        customer_id: k,\n        customer_name: any.customer_name,\n        contact_name: any.contact_name,\n        contact_email: any.contact_email,\n        account_manager: any.account_manager,\n        account_manager_slack: any.account_manager_slack,\n        credit_limit: any.credit_limit,\n        risk_rating: any.risk_rating,\n        next_action: 'hold',\n        route: 'hold',\n        log_key: k + '|' + today,\n        stage: 'none',\n        hold_reason: heldNote || 'Nothing outstanding.',\n        invoice_numbers: held.map(function (r) { return r.invoice_number; }).join(', '),\n        invoice_count: held.length,\n        total_outstanding: held.reduce(function (s, r) { return s + (Number(r.outstanding) || 0); }, 0),\n        oldest_days_overdue: held.reduce(function (m, r) { return Math.max(m, Number(r.days_overdue) || 0); }, 0),\n        broken_promise: false,\n        notify_manager: false,\n        over_credit_limit: false,\n        lines: [],\n        last_contacted_on: lastContact[k] ? String(lastContact[k].sent_on) : '',\n        assessed_on: today,\n        execution_id: String($execution.id || 'manual')\n      }\n    });\n    continue;\n  }\n\n  const stage = chase.reduce(function (best, r) {\n    return rank(r.stage) > rank(best) ? r.stage : best;\n  }, 'courtesy');\n  const total = chase.reduce(function (s, r) { return s + (Number(r.outstanding) || 0); }, 0);\n  const oldest = chase.reduce(function (m, r) { return Math.max(m, Number(r.days_overdue) || 0); }, 0);\n  const broken = chase.some(function (r) { return r.broken_promise; });\n\n  const prev = lastContact[k];\n  const sinceLast = prev ? dayDiff(prev.sent_on, today) : null;\n  const minGap = CADENCE_DAYS[stage] || 5;\n  const suppressed = sinceLast !== null && sinceLast < minGap;\n\n  out.push({\n    json: {\n      customer_id: k,\n      customer_name: any.customer_name,\n      contact_name: any.contact_name,\n      contact_email: any.contact_email,\n      account_manager: any.account_manager,\n      account_manager_slack: any.account_manager_slack,\n      credit_limit: any.credit_limit,\n      risk_rating: any.risk_rating,\n      next_action: suppressed ? 'hold' : 'chase',\n      route: suppressed ? 'hold' : ((stage === 'final' || stage === 'legal') ? 'escalate' : 'reminder'),\n      log_key: k + '|' + today,\n      stage: stage,\n      hold_reason: suppressed\n        ? ('Contacted ' + sinceLast + ' day(s) ago and the ' + stage + ' cadence is one contact every ' + minGap + ' days. Chasing again today would read as harassment.')\n        : heldNote,\n      invoice_numbers: chase.map(function (r) { return r.invoice_number; }).join(', '),\n      invoice_count: chase.length,\n      total_outstanding: total,\n      oldest_days_overdue: oldest,\n      broken_promise: broken,\n      notify_manager: !suppressed && (total >= (Number(any.notify_manager_threshold) || 50000000) || stage === 'final' || stage === 'legal'),\n      over_credit_limit: total > (Number(any.credit_limit) || 0) && (Number(any.credit_limit) || 0) > 0,\n      lines: chase.map(function (r) {\n        return {\n          invoice: r.invoice_number,\n          po: r.po_reference,\n          due: r.due_date,\n          days_overdue: r.days_overdue,\n          outstanding: r.outstanding,\n          partly_paid: (Number(r.amount_paid) || 0) > 0,\n          broken_promise: r.broken_promise\n        };\n      }).sort(function (a, b) { return b.days_overdue - a.days_overdue; }),\n      held_invoice_numbers: held.map(function (r) { return r.invoice_number; }).join(', '),\n      last_contacted_on: prev ? String(prev.sent_on) : '',\n      days_since_last_contact: sinceLast === null ? -1 : sinceLast,\n      assessed_on: today,\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nout.sort(function (a, b) { return b.json.total_outstanding - a.json.total_outstanding; });\nreturn out;"
+      },
+      "notes": "The whole point of the piece. A customer with four overdue invoices gets ONE message listing four lines, at the hardest stage any of them has reached - not four separate emails that make the company look like a robot."
+    },
+    {
+      "id": "c744e982-e90b-4704-a4a7-94c49578e5d1",
+      "name": "Route by What Happens Next",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        224
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "reminder",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-rem",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "reminder"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "escalate",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-esc",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "escalate"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "hold",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-hold",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "hold"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unclassified"
+        }
+      }
+    },
+    {
+      "id": "15f728d1-dbb5-46f8-8692-0a4d1f0b5041",
+      "name": "Draft Reminder",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        48
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rm-type",
+              "name": "artifact_type",
+              "value": "dunning_reminder",
+              "type": "string"
+            },
+            {
+              "id": "rm-subj",
+              "name": "email_subject",
+              "value": "={{ $json.stage === \"courtesy\" ? \"Coming due\" : \"Outstanding\" }}: {{ $json.invoice_count }} invoice(s) — {{ $json.customer_name }}",
+              "type": "string"
+            },
+            {
+              "id": "rm-body",
+              "name": "email_body",
+              "value": "=Dear {{ $json.contact_name }},\n\n{{ $json.stage === \"courtesy\" ? \"A quick note before these fall due.\" : \"Our records show the following still outstanding.\" }} If payment has already gone out, please ignore this and send us the reference.\n\n{{ $json.lines.map(l => l.invoice + \"  ·  due \" + l.due + \"  ·  \" + (l.days_overdue > 0 ? l.days_overdue + \" days overdue\" : Math.abs(l.days_overdue) + \" days to go\") + \"  ·  IDR \" + l.outstanding.toLocaleString(\"id-ID\") + (l.partly_paid ? \"  (part paid)\" : \"\")).join(\"\\n\") }}\n\nTotal outstanding: IDR {{ $json.total_outstanding.toLocaleString(\"id-ID\") }}\n\nIf any of these are in query, reply here and we will hold them while we sort it out.\n\nKind regards,\n{{ $json.account_manager }}\nAccounts Receivable",
+              "type": "string"
+            },
+            {
+              "id": "rm-touch",
+              "name": "human_touches",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "One email, every outstanding line on it, written so a customer who has already paid is not accused of anything."
+    },
+    {
+      "id": "83e83238-696e-404f-8da4-6771049f9879",
+      "name": "Collect All Outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1792,
+        80
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3
+      }
+    },
+    {
+      "id": "21370911-116a-406c-aa71-538c2566d1ec",
+      "name": "Draft Final Notice and Credit Hold",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        352
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fn-type",
+              "name": "artifact_type",
+              "value": "final_notice",
+              "type": "string"
+            },
+            {
+              "id": "fn-subj",
+              "name": "email_subject",
+              "value": "={{ $json.stage === \"legal\" ? \"FINAL NOTICE\" : \"Formal reminder\" }} — {{ $json.customer_name }} — IDR {{ $json.total_outstanding.toLocaleString(\"id-ID\") }}",
+              "type": "string"
+            },
+            {
+              "id": "fn-body",
+              "name": "email_body",
+              "value": "=Dear {{ $json.contact_name }},\n\nThe following remain unpaid, the oldest by {{ $json.oldest_days_overdue }} days:\n\n{{ $json.lines.map(l => l.invoice + \"  ·  due \" + l.due + \"  ·  \" + l.days_overdue + \" days overdue  ·  IDR \" + l.outstanding.toLocaleString(\"id-ID\") + (l.broken_promise ? \"  (payment was promised and not received)\" : \"\")).join(\"\\n\") }}\n\nTotal: IDR {{ $json.total_outstanding.toLocaleString(\"id-ID\") }}\n\n{{ $json.broken_promise ? \"We agreed a payment date with you and it passed without payment, so we cannot extend it again informally. \" : \"\" }}{{ $json.over_credit_limit ? \"This balance now exceeds your credit limit of IDR \" + $json.credit_limit.toLocaleString(\"id-ID\") + \", so further orders are on hold until it is cleared. \" : \"\" }}Please arrange payment, or call {{ $json.account_manager }} today to agree a plan.\n\nKind regards,\n{{ $json.account_manager }}\nAccounts Receivable",
+              "type": "string"
+            },
+            {
+              "id": "fn-hold",
+              "name": "credit_hold_recommended",
+              "value": "={{ $json.over_credit_limit || $json.stage === \"legal\" }}",
+              "type": "boolean"
+            },
+            {
+              "id": "fn-slack",
+              "name": "slack_message",
+              "value": "=*{{ $json.stage === \"legal\" ? \"Collections escalation\" : \"Overdue account\" }} — {{ $json.customer_name }}*\nIDR {{ $json.total_outstanding.toLocaleString(\"id-ID\") }} across {{ $json.invoice_count }} invoice(s), oldest {{ $json.oldest_days_overdue }} days.\n{{ $json.invoice_numbers }}\n{{ $json.broken_promise ? \"They broke a payment promise. \" : \"\" }}{{ $json.over_credit_limit ? \"Over credit limit — new orders should stop. \" : \"\" }}\n{{ $json.account_manager_slack }} this one is yours.",
+              "type": "string"
+            },
+            {
+              "id": "fn-touch",
+              "name": "human_touches",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "The hard end of the ladder. It states the credit consequence rather than threatening vaguely, and it names the person to call."
+    },
+    {
+      "id": "5ba38742-5427-48e8-bc0b-dde24f8b50df",
+      "name": "Record Why We Held Off",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        736
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "hd-type",
+              "name": "artifact_type",
+              "value": "no_contact",
+              "type": "string"
+            },
+            {
+              "id": "hd-line",
+              "name": "audit_line",
+              "value": "={{ $json.customer_name }}: not contacted today. {{ $json.hold_reason }}",
+              "type": "string"
+            },
+            {
+              "id": "hd-touch",
+              "name": "human_touches",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "Deciding NOT to chase is a decision, and it gets written down too. Otherwise nobody can tell the difference between restraint and the workflow being broken."
+    },
+    {
+      "id": "43f099ed-2e1d-42ef-97cd-43c0c7d8e1a0",
+      "name": "Send the Reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        304
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.contact_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email_body }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Accounts Receivable"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose, and no credential attached, so the demo runs for anyone. Attach a Gmail credential to switch it on.",
+      "webhookId": "aadac524-37b8-49b9-98dd-dd9e3e493c29"
+    },
+    {
+      "id": "3c442455-7630-4a60-a484-c99dee470ff2",
+      "name": "Send the Final Notice",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        496
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.contact_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email_body }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Accounts Receivable",
+          "ccList": "credit-control@example.com"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. Credit control is copied on final notices because someone other than the sender needs to see an account going bad.",
+      "webhookId": "3f7bf94d-f7eb-4651-b9d1-ea3a4ae53e5a"
+    },
+    {
+      "id": "aa36ad96-e32d-4f13-a9d4-7776841dbc59",
+      "name": "Ping the Account Manager",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1792,
+        688
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#collections"
+        },
+        "messageType": "text",
+        "text": "={{ $json.slack_message }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true,
+          "link_names": true
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. The account manager hears that their customer has gone to final notice from a person-shaped message, not from a report they might not read.",
+      "webhookId": "dfd11e0e-47e6-4a57-9042-7b8402fe18d9"
+    },
+    {
+      "id": "80c9384f-7574-4c42-b5bb-bc5a995d071b",
+      "name": "Write to Collection Log",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        96
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "bXSj9v9hpxqmQ6xg",
+          "cachedResultName": "AR Collection Log"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "log_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.log_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "log_key"
+          ],
+          "value": {
+            "log_key": "={{ $json.log_key }}",
+            "customer_id": "={{ $json.customer_id }}",
+            "invoice_numbers": "={{ $json.invoice_numbers }}",
+            "stage": "={{ $json.stage }}",
+            "action": "={{ $json.next_action === \"chase\" ? \"chased\" : \"held\" }}",
+            "channel": "={{ $json.next_action === \"chase\" ? \"email\" : \"none\" }}",
+            "recipient": "={{ $json.next_action === \"chase\" ? $json.contact_email : \"\" }}",
+            "amount_chased": "={{ $json.next_action === \"chase\" ? $json.total_outstanding : 0 }}",
+            "sent_on": "={{ $json.assessed_on }}",
+            "execution_id": "={{ $json.execution_id }}",
+            "note": "={{ $json.hold_reason || ($json.stage + \" stage, \" + $json.invoice_count + \" invoice(s)\") }}"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Keyed on customer plus date, so running twice in one morning updates the row instead of making the cadence guard think the customer was chased twice.",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ed59ea8f-6e5d-4439-a379-5e3cc9decd95",
+      "name": "Log Write Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        192
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lf-alert",
+              "name": "alert",
+              "value": "=Collection log write failed on run {{ $execution.id }}. The chase went out but was not recorded, so tomorrow the cadence guard will not know and the customer may be chased again too soon.",
+              "type": "string"
+            },
+            {
+              "id": "lf-sev",
+              "name": "severity",
+              "value": "high",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "notes": "A lost log row is what turns polite collections into harassment, so it gets its own path rather than being swallowed."
+    },
+    {
+      "id": "1ee36fd7-e85e-40cd-92f5-2a35876bf2bd",
+      "name": "Build Aging and Cash Forecast",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const COLLECT_ODDS = { current: 0.98, '1-30': 0.92, '31-60': 0.75, '61-90': 0.55, '90+': 0.3, unknown: 0.5 };\nconst MINUTES_PER_MANUAL_CHASE = 9;\n\nconst invoices = $('Assess Every Invoice').all().map(function (i) { return i.json; });\nconst customers = $('One Message per Customer').all().map(function (i) { return i.json; });\n\nfunction sum(list, field) {\n  return list.reduce(function (s, r) { return s + (Number(r[field]) || 0); }, 0);\n}\n\nconst live = invoices.filter(function (r) { return (Number(r.outstanding) || 0) > 0; });\n\nconst buckets = {};\nfor (const r of live) {\n  const b = r.aging_bucket || 'unknown';\n  if (!buckets[b]) buckets[b] = { bucket: b, count: 0, value: 0 };\n  buckets[b].count = buckets[b].count + 1;\n  buckets[b].value = buckets[b].value + (Number(r.outstanding) || 0);\n}\nconst order = ['current', '1-30', '31-60', '61-90', '90+', 'unknown'];\nconst aging = order.filter(function (b) { return buckets[b]; }).map(function (b) {\n  return {\n    bucket: buckets[b].bucket,\n    count: buckets[b].count,\n    value: buckets[b].value,\n    expected_cash: Math.round(buckets[b].value * (COLLECT_ODDS[b] === undefined ? 0.5 : COLLECT_ODDS[b]))\n  };\n});\n\nconst disputed = live.filter(function (r) { return r.outcome === 'disputed'; });\nconst promised = live.filter(function (r) { return r.outcome === 'promise_held'; });\nconst broken = live.filter(function (r) { return r.broken_promise; });\nconst dataProblems = invoices.filter(function (r) { return r.outcome === 'data_problem'; });\n\nconst chased = customers.filter(function (c) { return c.next_action === 'chase'; });\nconst heldBack = customers.filter(function (c) { return c.next_action === 'hold'; });\nconst invoicesCovered = sum(chased, 'invoice_count');\n\nconst overdueValue = sum(live.filter(function (r) { return (Number(r.days_overdue) || 0) > 0; }), 'outstanding');\nconst totalOutstanding = sum(live, 'outstanding');\nconst weightedDaysOverdue = totalOutstanding > 0\n  ? Math.round(live.reduce(function (s, r) {\n      return s + (Number(r.outstanding) || 0) * Math.max(0, Number(r.days_overdue) || 0);\n    }, 0) / totalOutstanding)\n  : 0;\n\nreturn [{\n  json: {\n    run_id: String($execution.id || 'manual'),\n    ran_on: new Date().toISOString().slice(0, 10),\n    invoices_open: live.length,\n    total_outstanding: totalOutstanding,\n    overdue_value: overdueValue,\n    overdue_pct: totalOutstanding > 0 ? Math.round((overdueValue / totalOutstanding) * 1000) / 10 : 0,\n    weighted_days_overdue: weightedDaysOverdue,\n    expected_cash_30d: aging.reduce(function (s, b) { return s + b.expected_cash; }, 0),\n    aging: aging,\n    messages_sent: chased.length,\n    invoices_covered: invoicesCovered,\n    messages_saved: invoicesCovered > chased.length ? invoicesCovered - chased.length : 0,\n    clerk_minutes_saved: invoicesCovered * MINUTES_PER_MANUAL_CHASE,\n    customers_held: heldBack.length,\n    disputed_count: disputed.length,\n    disputed_value: sum(disputed, 'outstanding'),\n    promised_count: promised.length,\n    promised_value: sum(promised, 'outstanding'),\n    broken_promise_count: broken.length,\n    broken_promise_value: sum(broken, 'outstanding'),\n    data_problem_count: dataProblems.length,\n    over_credit_limit: customers.filter(function (c) { return c.over_credit_limit; })\n      .map(function (c) { return { customer: c.customer_name, outstanding: c.total_outstanding, limit: c.credit_limit }; }),\n    outgoing: chased.map(function (c) {\n      return {\n        customer: c.customer_name,\n        stage: c.stage,\n        invoices: c.invoice_count,\n        numbers: c.invoice_numbers,\n        outstanding: c.total_outstanding,\n        oldest_days: c.oldest_days_overdue,\n        to: c.contact_email,\n        manager_pinged: c.notify_manager\n      };\n    }),\n    held_back: heldBack.map(function (c) {\n      return {\n        customer: c.customer_name,\n        why: c.hold_reason,\n        invoices: c.invoice_numbers,\n        outstanding: c.total_outstanding\n      };\n    })\n  }\n}];"
+      },
+      "notes": "Reads the assessment directly rather than whatever survived the log write, so the aging report is the truth about the book, not a report on the automation.",
+      "executeOnce": true
+    },
+    {
+      "id": "65e04861-4faa-41c7-8aef-873dffe9e77c",
+      "name": "Format Morning AR Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2464,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rp-title",
+              "name": "report_title",
+              "value": "=AR {{ $json.ran_on }} — IDR {{ $json.total_outstanding.toLocaleString(\"id-ID\") }} out, {{ $json.overdue_pct }}% overdue",
+              "type": "string"
+            },
+            {
+              "id": "rp-body",
+              "name": "report",
+              "value": "=*Accounts Receivable — {{ $json.ran_on }}*\nIDR {{ $json.total_outstanding.toLocaleString(\"id-ID\") }} outstanding across {{ $json.invoices_open }} invoices. {{ $json.overdue_pct }}% of it is overdue, weighted average {{ $json.weighted_days_overdue }} days late.\n\n*Aging*\n{{ $json.aging.map(b => b.bucket.padEnd(8) + String(b.count).padStart(3) + \" inv   IDR \" + b.value.toLocaleString(\"id-ID\") + \"   expect IDR \" + b.expected_cash.toLocaleString(\"id-ID\")).join(\"\\n\") }}\n\nExpected to collect: IDR {{ $json.expected_cash_30d.toLocaleString(\"id-ID\") }}\n\n*Went out today: {{ $json.messages_sent }} message(s) covering {{ $json.invoices_covered }} invoices*\n{{ $json.outgoing.map(o => \"- \" + o.customer + \" (\" + o.stage + \") \" + o.invoices + \" inv, IDR \" + o.outstanding.toLocaleString(\"id-ID\") + \", oldest \" + o.oldest_days + \"d\" + (o.manager_pinged ? \" [AM pinged]\" : \"\")).join(\"\\n\") }}\n\nThat is {{ $json.messages_saved }} fewer emails than chasing invoice by invoice, and about {{ $json.clerk_minutes_saved }} minutes of somebody's morning handed back.\n\n*Held back on purpose: {{ $json.customers_held }}*\n{{ $json.held_back.map(h => \"- \" + h.customer + \": \" + h.why).join(\"\\n\") }}\n\nIn dispute: {{ $json.disputed_count }} (IDR {{ $json.disputed_value.toLocaleString(\"id-ID\") }}) · promised: {{ $json.promised_count }} (IDR {{ $json.promised_value.toLocaleString(\"id-ID\") }}) · broken promises: {{ $json.broken_promise_count }}\n{{ $json.over_credit_limit.length ? \"Over credit limit: \" + $json.over_credit_limit.map(c => c.customer).join(\", \") : \"Nobody over their credit limit.\" }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "notes": "What the finance lead reads with their coffee. Aging first, then what went out, then what deliberately did not."
+    },
+    {
+      "id": "eb8a8536-958e-4a27-8d22-078ed9c42e5e",
+      "name": "Send the Morning Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "finance-lead@example.com",
+        "subject": "={{ $json.report_title }}",
+        "emailType": "text",
+        "message": "={{ $json.report }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Accounts Receivable"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. One message per run, not one per customer.",
+      "webhookId": "98b4154e-a717-453c-bb52-a6c311cfa6aa"
+    },
+    {
+      "id": "7e22cdf1-5f55-4bb8-b4e1-db85b2703800",
+      "name": "Sticky Note 77b7e45b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        736
+      ],
+      "parameters": {
+        "content": "## 1 · Age the book\n\nRuns every morning, or on demand. Customers, open invoices and the collection log are each read once.\n\nThe collection log is the part that matters: it is the memory this workflow keeps of who was already contacted and when. Without it, a scheduled chaser mails the same customer every single day until they pay, which is how automated collections destroys a relationship a human would have fixed with one phone call.",
+        "color": 4
+      }
+    },
+    {
+      "id": "62374413-4e4d-43c7-bda1-b616712dd8e8",
+      "name": "Sticky Note 9af024f6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        992
+      ],
+      "parameters": {
+        "content": "## 2 · Every reason NOT to chase, first\n\nThe order is deliberate. Settled, in dispute, or covered by a promise that has not expired — none of those get chased, whatever the age. A broken promise moves the account one rung HARDER, because the trust was already spent.\n\nOnly then does the ladder apply: due soon and large enough for a courtesy note, 1-7 days a reminder, 8-21 firm, 22-45 final, 46+ collections.\n\nThen the grouping, which is the point of the whole piece: one message per CUSTOMER, listing every one of their overdue invoices, pitched at the hardest stage any single one has reached. Twelve overdue invoices become four emails, not twelve.",
+        "color": 3
+      }
+    },
+    {
+      "id": "b40d6e62-0aad-45e0-8130-c5feafb19cf4",
+      "name": "Sticky Note 0e5878f5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        1248
+      ],
+      "parameters": {
+        "content": "## 3 · Three outcomes\n\nA reminder that assumes the customer may simply have missed it. A final notice that states the credit consequence plainly and names the person to call. Or a written record of why we deliberately said nothing today — restraint that is not recorded is indistinguishable from a broken workflow.\n\nThe cadence guard sits in front of all of it: a customer contacted yesterday is not contacted again today, even if a new invoice has just tipped over.",
+        "color": 5
+      }
+    },
+    {
+      "id": "acfc2361-f691-4706-9a74-3712504cc1ed",
+      "name": "Sticky Note 5b420939",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        1504
+      ],
+      "parameters": {
+        "content": "## 4 · Record, then report\n\nEvery decision, chased or held, is written back keyed on customer plus date. Running twice in one morning updates that row rather than making tomorrow think the customer was chased twice.\n\nThe morning report leads with the aging and a probability-weighted cash forecast, because that is the number a finance lead actually needs: not how many emails went out, but how much of this is really coming in.",
+        "color": 6
+      }
+    },
+    {
+      "id": "25ba0839-2f11-43e2-b921-917fdf9dd856",
+      "name": "Sticky Note 428b9249",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        1760
+      ],
+      "parameters": {
+        "content": "## 5 · Where it goes\n\nAll four are switched off and carry no credential, wired as side branches so the log write and the report are unaffected by whether they are on.\n\nGmail for the customer-facing messages, Slack for the account manager whose relationship is about to get difficult. Turn one on by attaching a credential and picking the channel or address.",
+        "color": 7
+      }
+    }
+  ],
+  "connections": {
+    "Every Working Morning": {
+      "main": [
+        [
+          {
+            "node": "Load Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Customers": {
+      "main": [
+        [
+          {
+            "node": "Load Open Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Demo Now": {
+      "main": [
+        [
+          {
+            "node": "Load Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Open Invoices": {
+      "main": [
+        [
+          {
+            "node": "Load Collection History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Collection History": {
+      "main": [
+        [
+          {
+            "node": "Assess Every Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Every Invoice": {
+      "main": [
+        [
+          {
+            "node": "One Message per Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Message per Customer": {
+      "main": [
+        [
+          {
+            "node": "Route by What Happens Next",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by What Happens Next": {
+      "main": [
+        [
+          {
+            "node": "Draft Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Draft Final Notice and Credit Hold",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Why We Held Off",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Why We Held Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Reminder": {
+      "main": [
+        [
+          {
+            "node": "Collect All Outcomes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send the Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect All Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Write to Collection Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Final Notice and Credit Hold": {
+      "main": [
+        [
+          {
+            "node": "Collect All Outcomes",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Send the Final Notice",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ping the Account Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Why We Held Off": {
+      "main": [
+        [
+          {
+            "node": "Collect All Outcomes",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Write to Collection Log": {
+      "main": [
+        [
+          {
+            "node": "Build Aging and Cash Forecast",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Write Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Aging and Cash Forecast": {
+      "main": [
+        [
+          {
+            "node": "Format Morning AR Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Morning AR Report": {
+      "main": [
+        [
+          {
+            "node": "Send the Morning Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}
