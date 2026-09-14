@@ -1,0 +1,1094 @@
+{
+  "name": "[PORTFOLIO] Invoice Processing and 3-Way Match",
+  "nodes": [
+    {
+      "id": "290ec560-9fcd-4d3e-b518-c4d8d287e076",
+      "name": "AP Invoice Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "portfolio-ap-invoice-batch",
+        "authentication": "none",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "4de68ba8-5d4d-49d9-bd2c-56147b8cf062"
+    },
+    {
+      "id": "f78f97fa-ffed-474e-953e-98db717c0643",
+      "name": "Load Purchase Orders",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "nGAz52kFYS8e5f4V",
+          "cachedResultName": "AP Purchase Orders"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "Whole PO book, read once per run. Small master table, so matching in memory beats one query per invoice."
+    },
+    {
+      "id": "af9e863e-c2ef-4df3-be3d-9fcb64079da0",
+      "name": "Run Demo Batch",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "016190d1-137a-4eb0-9da8-f4f35538b33d",
+      "name": "Load Goods Receipts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "5lR4D0enCtsvORpV",
+          "cachedResultName": "AP Goods Receipts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "executeOnce, otherwise this would run once for every PO row arriving from the previous node.",
+      "executeOnce": true
+    },
+    {
+      "id": "464b6089-339f-4f31-978c-ea882c805d2c",
+      "name": "Load Posted Invoice Ledger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Bp66pyZNrs2qQyBl",
+          "cachedResultName": "AP Invoice Ledger"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "notes": "alwaysOutputData is deliberate here: an empty ledger is the normal state on day one, and the batch must still be processed.",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a5529000-ad25-48fe-a0cd-753bba0cc22d",
+      "name": "Collect Invoice Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "let supplied = null;\ntry {\n  const hook = $('AP Invoice Webhook').first().json;\n  const body = hook && hook.body ? hook.body : hook;\n  if (body && Array.isArray(body.invoices) && body.invoices.length) supplied = body.invoices;\n} catch (e) {\n  supplied = null;\n}\n\nif (supplied) {\n  return supplied.map(function (r) {\n    return { json: Object.assign({ source: 'webhook' }, r) };\n  });\n}\n\nconst run = String($execution.id || 'DEMO');\nconst tag = 'R' + run;\n\nconst fixtures = [\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-01',\n    invoice_date: '2026-09-09',\n    po_number: 'PO-2026-4401',\n    sku: 'CBL-3C-25',\n    qty_billed: 10,\n    unit_price: 876000,\n    amount: 8760000,\n    currency: 'IDR',\n    payment_terms: '2/10 NET 30',\n    expected: 'auto_approve - price 0.11 percent over PO, inside the 2 percent tolerance, and under the touchless ceiling'\n  },\n  {\n    vendor: 'Mitra Logistik Nusantara',\n    invoice_number: 'INV-' + tag + '-02',\n    invoice_date: '2026-09-06',\n    po_number: 'PO-2026-4402',\n    sku: 'FRT-JKT-SBY',\n    qty_billed: 12,\n    unit_price: 4200000,\n    amount: 50400000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'needs_approval manager - clean match but over the touchless ceiling'\n  },\n  {\n    vendor: 'PT Kemasan Prima',\n    invoice_number: 'INV-' + tag + '-03',\n    invoice_date: '2026-09-07',\n    po_number: 'PO-2026-4403',\n    sku: 'BOX-A4-DBL',\n    qty_billed: 5000,\n    unit_price: 9400,\n    amount: 47000000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception QTY_MISMATCH - vendor billed the full order, warehouse only booked in 4600'\n  },\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-04',\n    invoice_date: '2026-09-10',\n    po_number: 'PO-2026-4405',\n    sku: 'PNL-MCB-63',\n    qty_billed: 8,\n    unit_price: 2750000,\n    amount: 22000000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception NO_RECEIPT - invoiced before the goods were booked in'\n  },\n  {\n    vendor: 'Berkah Jaya Mandiri',\n    invoice_number: 'INV-' + tag + '-05',\n    invoice_date: '2026-09-08',\n    po_number: 'PO-2026-9999',\n    sku: 'MISC-01',\n    qty_billed: 4,\n    unit_price: 1500000,\n    amount: 6000000,\n    currency: 'IDR',\n    payment_terms: 'NET 14',\n    expected: 'exception PO_NOT_FOUND - no such purchase order'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: '',\n    invoice_date: '',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 100,\n    unit_price: 31500,\n    amount: 0,\n    currency: 'USD',\n    payment_terms: 'NET 30',\n    expected: 'exception VALIDATION - unreadable scan, four separate field problems'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-8899',\n    invoice_date: '2026-08-27',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 600,\n    unit_price: 31500,\n    amount: 18900000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception DUPLICATE - already paid in the August close, vendor re-sent it'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-' + tag + '-08',\n    invoice_date: '2026-09-11',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 600,\n    unit_price: 33600,\n    amount: 20160000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception PRICE_VARIANCE - billed 6.67 percent above the agreed PO price'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-' + tag + '-09',\n    invoice_date: '2026-09-12',\n    po_number: 'PO-2026-4406',\n    sku: 'CNC-VMC-850',\n    qty_billed: 1,\n    unit_price: 1450000000,\n    amount: 1450000000,\n    currency: 'IDR',\n    payment_terms: 'NET 45',\n    expected: 'needs_approval director - clean match, capex above the manager ceiling'\n  }\n];\n\nreturn fixtures.map(function (r) {\n  return { json: Object.assign({ source: 'demo_fixture' }, r) };\n});"
+      },
+      "notes": "Uses the posted invoices from the webhook when there are any, otherwise emits the nine demo invoices that exercise every branch."
+    },
+    {
+      "id": "1a4322aa-78d2-4643-b239-dde7a8c27657",
+      "name": "Three-Way Match and Payment Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const TOLERANCE_PCT = 0.02;\nconst TOLERANCE_FLOOR_IDR = 50000;\nconst AUTO_APPROVE_MAX = 10000000;\nconst MANAGER_MAX = 100000000;\nconst MINUTES_PER_MANUAL_INVOICE = 7;\n\nfunction toNum(v) {\n  if (v === null || v === undefined || v === '') return 0;\n  const n = Number(String(v).split(',').join(''));\n  return isNaN(n) ? 0 : n;\n}\nfunction makeKey(vendor, invoiceNumber) {\n  return (String(vendor || '').trim() + '|' + String(invoiceNumber || '').trim()).toUpperCase();\n}\nfunction addDays(iso, days) {\n  const t = Date.parse(iso);\n  if (isNaN(t)) return '';\n  return new Date(t + days * 86400000).toISOString().slice(0, 10);\n}\nfunction parseTerms(raw) {\n  const terms = String(raw || 'NET 30').toUpperCase().trim();\n  const netIdx = terms.indexOf('NET');\n  const slash = terms.indexOf('/');\n  let netDays = 30;\n  let discPct = 0;\n  let discDays = 0;\n  if (netIdx >= 0) {\n    const n = parseInt(terms.slice(netIdx + 3).trim(), 10);\n    if (!isNaN(n)) netDays = n;\n  }\n  if (slash > 0 && netIdx > slash) {\n    const parts = terms.slice(0, netIdx).trim().split('/');\n    const p = parseFloat(parts[0]);\n    const d = parseInt(parts[1], 10);\n    if (!isNaN(p)) discPct = p / 100;\n    if (!isNaN(d)) discDays = d;\n  }\n  return { netDays: netDays, discPct: discPct, discDays: discDays, label: terms };\n}\n\nconst poRows = $('Load Purchase Orders').all();\nconst grnRows = $('Load Goods Receipts').all();\nconst ledgerRows = $('Load Posted Invoice Ledger').all();\n\nconst poByNumber = {};\nfor (const it of poRows) {\n  const r = it.json || {};\n  if (!r.po_number) continue;\n  poByNumber[String(r.po_number).trim().toUpperCase()] = r;\n}\n\nconst grnByPo = {};\nfor (const it of grnRows) {\n  const r = it.json || {};\n  if (!r.po_number) continue;\n  const k = String(r.po_number).trim().toUpperCase();\n  if (!grnByPo[k]) grnByPo[k] = [];\n  grnByPo[k].push(r);\n}\n\nconst ledgerByKey = {};\nfor (const it of ledgerRows) {\n  const r = it.json || {};\n  if (!r.invoice_key) continue;\n  if (String(r.decision || '') === 'exception') continue;\n  ledgerByKey[String(r.invoice_key).trim().toUpperCase()] = r;\n}\n\nconst seenThisBatch = {};\nconst out = [];\n\nfor (const it of $input.all()) {\n  const inv = it.json || {};\n  const vendor = String(inv.vendor || '').trim();\n  const invoiceNumber = String(inv.invoice_number || '').trim();\n  const poNumber = String(inv.po_number || '').trim().toUpperCase();\n  const sku = String(inv.sku || '').trim().toUpperCase();\n  const qtyBilled = toNum(inv.qty_billed);\n  const unitPriceBilled = toNum(inv.unit_price);\n  const rawAmount = toNum(inv.amount);\n  const amountIsSane = rawAmount > 0 && rawAmount < 1e15;\n  const amount = amountIsSane ? rawAmount : 0;\n  const currency = String(inv.currency || '').trim().toUpperCase();\n  const invoiceDate = String(inv.invoice_date || '').trim();\n  const invoiceKey = makeKey(vendor, invoiceNumber);\n\n  const problems = [];\n  if (!vendor) problems.push('vendor name is missing');\n  if (!invoiceNumber) problems.push('invoice number is missing');\n  if (!poNumber) problems.push('PO reference is missing');\n  if (!amountIsSane) problems.push(rawAmount > 0 ? 'invoice amount ' + rawAmount + ' is outside the plausible range and was not read' : 'invoice amount must be greater than zero');\n  if (currency !== 'IDR') problems.push('currency ' + (currency || '(blank)') + ' is not supported, AP posts IDR only');\n  if (!invoiceDate || isNaN(Date.parse(invoiceDate))) problems.push('invoice date is missing or unreadable');\n  if (amount > 0 && qtyBilled > 0 && unitPriceBilled > 0) {\n    const lineTotal = qtyBilled * unitPriceBilled;\n    if (Math.abs(lineTotal - amount) > 1) {\n      problems.push('invoice total ' + amount + ' does not equal quantity x unit price (' + lineTotal + ')');\n    }\n  }\n\n  const po = poByNumber[poNumber] || null;\n  const grns = grnByPo[poNumber] || [];\n  const qtyReceived = grns.reduce(function (s, g) { return s + toNum(g.qty_received); }, 0);\n  const grnNumbers = grns.map(function (g) { return String(g.grn_number || ''); }).join(', ');\n  const grnCondition = grns.length ? String(grns[0].condition || '') : '';\n  const poUnitPrice = po ? toNum(po.unit_price) : 0;\n  const qtyOrdered = po ? toNum(po.qty_ordered) : 0;\n  const expectedTotal = po ? qtyBilled * poUnitPrice : 0;\n  const varianceValue = po ? amount - expectedTotal : 0;\n  const varianceAbs = varianceValue < 0 ? -varianceValue : varianceValue;\n  const variancePct = expectedTotal > 0 ? varianceValue / expectedTotal : 0;\n  const pctAllowance = expectedTotal * TOLERANCE_PCT;\n  const allowance = pctAllowance > TOLERANCE_FLOOR_IDR ? pctAllowance : TOLERANCE_FLOOR_IDR;\n\n  let decision = '';\n  let routeTo = '';\n  let exceptionCode = '';\n  let reason = '';\n\n  if (problems.length) {\n    decision = 'exception';\n    routeTo = 'ap_clerk';\n    exceptionCode = 'VALIDATION';\n    reason = 'Rejected before matching: ' + problems.join('; ') + '.';\n  } else if (ledgerByKey[invoiceKey]) {\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'DUPLICATE';\n    reason = 'Already accepted on ' + String(ledgerByKey[invoiceKey].processed_at || 'an earlier run') + ' as ' + String(ledgerByKey[invoiceKey].decision || 'posted') + '. Paying it again would double-pay the vendor.';\n  } else if (seenThisBatch[invoiceKey]) {\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'DUPLICATE';\n    reason = 'The same vendor and invoice number appears more than once inside this batch.';\n  } else if (!po) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'PO_NOT_FOUND';\n    reason = 'No purchase order ' + poNumber + ' exists. Either the vendor quoted the wrong PO, or this was bought without one.';\n  } else if (!grns.length) {\n    decision = 'exception';\n    routeTo = 'warehouse';\n    exceptionCode = 'NO_RECEIPT';\n    reason = 'Nothing has been booked in against ' + poNumber + ' yet. Goods receipt must be posted before this invoice can be paid.';\n  } else if (qtyBilled > qtyReceived) {\n    decision = 'exception';\n    routeTo = 'warehouse';\n    exceptionCode = 'QTY_MISMATCH';\n    reason = 'Billed ' + qtyBilled + ' but only ' + qtyReceived + ' received on ' + grnNumbers + (grnCondition ? ' (' + grnCondition + ')' : '') + '. Short by ' + (qtyBilled - qtyReceived) + '.';\n  } else if (qtyBilled > qtyOrdered) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'OVER_PO';\n    reason = 'Billed ' + qtyBilled + ' against a PO for ' + qtyOrdered + '. The PO needs a change order before this can be paid.';\n  } else if (sku && po.sku && sku !== String(po.sku).trim().toUpperCase()) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'SKU_MISMATCH';\n    reason = 'Invoice bills ' + sku + ' but ' + poNumber + ' is for ' + String(po.sku) + '.';\n  } else if (varianceAbs > allowance) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'PRICE_VARIANCE';\n    reason = 'Billed ' + amount + ' against an expected ' + expectedTotal + ' at the PO price of ' + poUnitPrice + ' per unit. Over tolerance by ' + Math.round(varianceAbs - allowance) + '.';\n  } else if (amount <= AUTO_APPROVE_MAX) {\n    decision = 'auto_approve';\n    routeTo = 'accounting_auto';\n    reason = 'Three-way match clean and under the touchless ceiling of ' + AUTO_APPROVE_MAX + '. Posted without human review.';\n  } else if (amount <= MANAGER_MAX) {\n    decision = 'needs_approval';\n    routeTo = 'manager';\n    reason = 'Three-way match clean. Above the touchless ceiling, so a manager signs off before posting.';\n  } else {\n    decision = 'needs_approval';\n    routeTo = 'director';\n    reason = 'Three-way match clean but above ' + MANAGER_MAX + '. Director approval required.';\n  }\n\n  seenThisBatch[invoiceKey] = true;\n\n  const ledgerKey = decision === 'exception' ? invoiceKey + ' #' + exceptionCode : invoiceKey;\n\n  const terms = parseTerms(inv.payment_terms);\n  const dueDate = invoiceDate && !isNaN(Date.parse(invoiceDate)) ? addDays(invoiceDate, terms.netDays) : '';\n  const discountDate = terms.discPct > 0 && dueDate ? addDays(invoiceDate, terms.discDays) : '';\n  const discountAmount = terms.discPct > 0 && decision !== 'exception' ? Math.round(amount * terms.discPct) : 0;\n  const payable = decision === 'exception' ? 0 : amount - discountAmount;\n\n  out.push({\n    json: {\n      invoice_key: invoiceKey,\n      ledger_key: ledgerKey,\n      vendor: vendor,\n      invoice_number: invoiceNumber,\n      invoice_date: invoiceDate,\n      po_number: poNumber,\n      sku: sku,\n      qty_billed: qtyBilled,\n      unit_price: unitPriceBilled,\n      amount: amount,\n      currency: currency,\n      decision: decision,\n      route_to: routeTo,\n      exception_code: exceptionCode,\n      note: reason,\n      po_found: po ? true : false,\n      po_vendor: po ? String(po.vendor || '') : '',\n      po_qty_ordered: qtyOrdered,\n      po_unit_price: poUnitPrice,\n      po_buyer: po ? String(po.buyer || '') : '',\n      grn_numbers: grnNumbers,\n      grn_qty_received: qtyReceived,\n      grn_condition: grnCondition,\n      expected_total: expectedTotal,\n      variance_value: varianceValue,\n      variance_pct: Math.round(variancePct * 10000) / 100,\n      tolerance_allowance: Math.round(allowance),\n      payment_terms: terms.label,\n      due_date: dueDate,\n      discount_date: discountDate,\n      discount_amount: discountAmount,\n      payable_amount: payable,\n      validation_problems: problems,\n      minutes_saved: decision === 'exception' ? 0 : MINUTES_PER_MANUAL_INVOICE,\n      processed_at: new Date().toISOString(),\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nreturn out;"
+      },
+      "notes": "Every rule that decides whether money leaves the company lives in this one node, in the order it is applied."
+    },
+    {
+      "id": "b730d313-c180-4a4f-b967-f685a6e52723",
+      "name": "Route by Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        160
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "auto_approve",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-auto",
+                    "leftValue": "={{ $json.decision }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "auto_approve"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "needs_approval",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-appr",
+                    "leftValue": "={{ $json.decision }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "needs_approval"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "exception",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-exc",
+                    "leftValue": "={{ $json.decision }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "exception"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unclassified"
+        }
+      }
+    },
+    {
+      "id": "21661972-0801-45ee-b4f0-12a6f6df0201",
+      "name": "Draft Journal Entry",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "je-type",
+              "name": "artifact_type",
+              "value": "journal_entry",
+              "type": "string"
+            },
+            {
+              "id": "je-ref",
+              "name": "posting_reference",
+              "value": "=AP-{{ $json.execution_id }}-{{ $json.invoice_number }}",
+              "type": "string"
+            },
+            {
+              "id": "je-lines",
+              "name": "journal_entry",
+              "value": "=Posting {{ $json.invoice_key }}\nDr  5-1200  Purchases / Inventory   {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }}\nCr  2-1100  Accounts Payable        {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }}\nVendor {{ $json.vendor }} | PO {{ $json.po_number }} | GRN {{ $json.grn_numbers }}\nTerms {{ $json.payment_terms }} | due {{ $json.due_date }}",
+              "type": "string"
+            },
+            {
+              "id": "je-pay",
+              "name": "pay_on",
+              "value": "={{ $json.discount_date || $json.due_date }}",
+              "type": "string"
+            },
+            {
+              "id": "je-save",
+              "name": "discount_captured",
+              "value": "={{ $json.discount_amount }}",
+              "type": "number"
+            },
+            {
+              "id": "je-touch",
+              "name": "human_touches",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "No human sees these. They post straight through and only appear in the run summary."
+    },
+    {
+      "id": "d02e53af-037e-4177-aa77-5dbc815d7c4a",
+      "name": "Write to Invoice Ledger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Bp66pyZNrs2qQyBl",
+          "cachedResultName": "AP Invoice Ledger"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoice_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.ledger_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "invoice_key"
+          ],
+          "value": {
+            "invoice_key": "={{ $json.ledger_key }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoice_number": "={{ $json.invoice_number }}",
+            "po_number": "={{ $json.po_number }}",
+            "amount": "={{ $json.amount }}",
+            "currency": "={{ $json.currency }}",
+            "decision": "={{ $json.decision }}",
+            "route_to": "={{ $json.route_to }}",
+            "exception_code": "={{ $json.exception_code }}",
+            "note": "={{ $json.note }}",
+            "processed_at": "={{ $json.processed_at }}",
+            "execution_id": "={{ $json.execution_id }}"
+          },
+          "schema": [
+            {
+              "id": "invoice_key",
+              "displayName": "invoice_key",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_number",
+              "displayName": "invoice_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "po_number",
+              "displayName": "po_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "route_to",
+              "displayName": "route_to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "exception_code",
+              "displayName": "exception_code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "note",
+              "displayName": "note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "Upsert on invoice_key. This row is what makes the same invoice a duplicate the next time it arrives.",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "24310bb9-052f-4349-9100-c25a019e859d",
+      "name": "Draft Approval Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        192
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ap-type",
+              "name": "artifact_type",
+              "value": "approval_request",
+              "type": "string"
+            },
+            {
+              "id": "ap-role",
+              "name": "approver_role",
+              "value": "={{ $json.route_to }}",
+              "type": "string"
+            },
+            {
+              "id": "ap-sla",
+              "name": "approval_sla_hours",
+              "value": "={{ $json.route_to === \"director\" ? 48 : 24 }}",
+              "type": "number"
+            },
+            {
+              "id": "ap-msg",
+              "name": "approval_message",
+              "value": "=*Invoice needs your approval — {{ $json.route_to }}*\n{{ $json.vendor }} · {{ $json.invoice_number }} · {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }}\nPO {{ $json.po_number }} matched against GRN {{ $json.grn_numbers }} — quantity and price both inside tolerance.\nBuyer {{ $json.po_buyer }} raised the PO. Pay by {{ $json.due_date }}.\nApprove to post, or send back with a reason.",
+              "type": "string"
+            },
+            {
+              "id": "ap-pay",
+              "name": "pay_on",
+              "value": "={{ $json.discount_date || $json.due_date }}",
+              "type": "string"
+            },
+            {
+              "id": "ap-touch",
+              "name": "human_touches",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "One approval, one person, with the match evidence already attached. Nobody has to go and look anything up."
+    },
+    {
+      "id": "60dd1c6d-70c2-461b-9f4d-ffaff5e9a8b5",
+      "name": "Open Exception Ticket",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        384
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ex-type",
+              "name": "artifact_type",
+              "value": "exception_ticket",
+              "type": "string"
+            },
+            {
+              "id": "ex-id",
+              "name": "ticket_id",
+              "value": "=EXC-{{ $json.execution_id }}-{{ $itemIndex + 1 }}",
+              "type": "string"
+            },
+            {
+              "id": "ex-owner",
+              "name": "ticket_owner",
+              "value": "={{ $json.route_to }}",
+              "type": "string"
+            },
+            {
+              "id": "ex-prio",
+              "name": "ticket_priority",
+              "value": "={{ $json.exception_code === \"DUPLICATE\" ? \"high\" : ($json.amount > 25000000 ? \"high\" : \"normal\") }}",
+              "type": "string"
+            },
+            {
+              "id": "ex-msg",
+              "name": "ticket_message",
+              "value": "=[{{ $json.exception_code }}] {{ $json.vendor }} — {{ $json.invoice_number || \"(no invoice number)\" }}\nAmount {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }} against {{ $json.po_number }}\nWhy it stopped: {{ $json.note }}\nOwner: {{ $json.route_to }}. Nothing is paid until this is cleared.",
+              "type": "string"
+            },
+            {
+              "id": "ex-touch",
+              "name": "human_touches",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "notes": "The exception queue is the product. Every ticket says which team owns it and what specifically is wrong."
+    },
+    {
+      "id": "67bbaad9-02e5-4bd2-ba37-4d863f0d24af",
+      "name": "Ledger Write Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        384
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lf-alert",
+              "name": "alert",
+              "value": "=AP ledger write failed on run {{ $execution.id }}. The decision was made but not recorded, so this invoice will not be seen as a duplicate next run. Re-run before releasing payment.",
+              "type": "string"
+            },
+            {
+              "id": "lf-sev",
+              "name": "severity",
+              "value": "critical",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "notes": "A failed ledger write is the one failure that can cause a double payment, so it gets its own path instead of being swallowed."
+    },
+    {
+      "id": "0865a218-3354-4e3e-aaa1-59b033b7790f",
+      "name": "Build Run Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = $('Three-Way Match and Payment Engine').all().map(function (i) { return i.json; });\n\nconst total = rows.length;\nconst autoPosted = rows.filter(function (r) { return r.decision === 'auto_approve'; });\nconst pending = rows.filter(function (r) { return r.decision === 'needs_approval'; });\nconst held = rows.filter(function (r) { return r.decision === 'exception'; });\n\nfunction sum(list, field) {\n  return list.reduce(function (s, r) { return s + (Number(r[field]) || 0); }, 0);\n}\n\nconst byCode = {};\nfor (const r of held) {\n  const c = r.exception_code || 'UNKNOWN';\n  if (!byCode[c]) byCode[c] = { code: c, count: 0, value: 0, owners: {} };\n  byCode[c].count = byCode[c].count + 1;\n  byCode[c].value = byCode[c].value + (Number(r.amount) || 0);\n  byCode[c].owners[r.route_to || 'unassigned'] = true;\n}\nconst exceptionBreakdown = Object.keys(byCode).map(function (c) {\n  return {\n    code: c,\n    count: byCode[c].count,\n    value: byCode[c].value,\n    owner: Object.keys(byCode[c].owners).join(', ')\n  };\n}).sort(function (a, b) { return b.value - a.value; });\n\nconst byVendor = {};\nfor (const r of rows) {\n  const v = r.vendor || '(no vendor)';\n  if (!byVendor[v]) byVendor[v] = { vendor: v, invoices: 0, billed: 0, payable: 0, held: 0 };\n  byVendor[v].invoices = byVendor[v].invoices + 1;\n  byVendor[v].billed = byVendor[v].billed + (Number(r.amount) || 0);\n  byVendor[v].payable = byVendor[v].payable + (Number(r.payable_amount) || 0);\n  if (r.decision === 'exception') byVendor[v].held = byVendor[v].held + (Number(r.amount) || 0);\n}\nconst vendorBreakdown = Object.keys(byVendor).map(function (v) { return byVendor[v]; })\n  .sort(function (a, b) { return b.billed - a.billed; });\n\nconst discounts = rows.filter(function (r) { return (Number(r.discount_amount) || 0) > 0; })\n  .map(function (r) {\n    return {\n      invoice: r.invoice_number,\n      vendor: r.vendor,\n      save: Number(r.discount_amount) || 0,\n      pay_by: r.discount_date,\n      terms: r.payment_terms\n    };\n  }).sort(function (a, b) { return b.save - a.save; });\n\nconst schedule = rows.filter(function (r) { return r.decision !== 'exception' && r.due_date; })\n  .map(function (r) {\n    return {\n      pay_on: r.discount_date || r.due_date,\n      invoice: r.invoice_number,\n      vendor: r.vendor,\n      amount: Number(r.payable_amount) || 0,\n      approval: r.route_to\n    };\n  }).sort(function (a, b) { return a.pay_on < b.pay_on ? -1 : 1; });\n\nconst touchless = total ? Math.round((autoPosted.length / total) * 1000) / 10 : 0;\nconst minutesSaved = sum(rows, 'minutes_saved');\n\nreturn [{\n  json: {\n    run_id: String($execution.id || 'manual'),\n    ran_at: new Date().toISOString(),\n    invoices_processed: total,\n    auto_posted_count: autoPosted.length,\n    auto_posted_value: sum(autoPosted, 'amount'),\n    awaiting_approval_count: pending.length,\n    awaiting_approval_value: sum(pending, 'amount'),\n    held_count: held.length,\n    held_value: sum(held, 'amount'),\n    total_billed: sum(rows, 'amount'),\n    total_payable: sum(rows, 'payable_amount'),\n    touchless_rate_pct: touchless,\n    clerk_minutes_saved: minutesSaved,\n    early_payment_savings: sum(rows, 'discount_amount'),\n    discount_opportunities: discounts,\n    exception_breakdown: exceptionBreakdown,\n    vendor_breakdown: vendorBreakdown,\n    payment_schedule: schedule,\n    exceptions: held.map(function (r) {\n      return {\n        invoice: r.invoice_number || '(no number)',\n        vendor: r.vendor || '(no vendor)',\n        po: r.po_number,\n        amount: r.amount,\n        code: r.exception_code,\n        owner: r.route_to,\n        why: r.note\n      };\n    })\n  }\n}];"
+      },
+      "notes": "Reads the engine output directly, so the numbers are the decisions themselves rather than whatever survived the ledger write.",
+      "executeOnce": true
+    },
+    {
+      "id": "233cd9d3-a59a-4b1f-adb4-785c812193b4",
+      "name": "Format Run Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2464,
+        96
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rp-title",
+              "name": "report_title",
+              "value": "=AP run {{ $json.run_id }} — {{ $json.invoices_processed }} invoices",
+              "type": "string"
+            },
+            {
+              "id": "rp-body",
+              "name": "report",
+              "value": "=*Accounts Payable — run {{ $json.run_id }}*\n{{ $json.invoices_processed }} invoices worth {{ $json.total_billed.toLocaleString(\"id-ID\") }} IDR came in.\n\nPosted with no human touch: {{ $json.auto_posted_count }} ({{ $json.auto_posted_value.toLocaleString(\"id-ID\") }} IDR)\nWaiting on an approver: {{ $json.awaiting_approval_count }} ({{ $json.awaiting_approval_value.toLocaleString(\"id-ID\") }} IDR)\nHeld in the exception queue: {{ $json.held_count }} ({{ $json.held_value.toLocaleString(\"id-ID\") }} IDR)\n\nTouchless rate {{ $json.touchless_rate_pct }}% · about {{ $json.clerk_minutes_saved }} clerk-minutes not spent keying and checking.\nEarly-payment discounts worth {{ $json.early_payment_savings.toLocaleString(\"id-ID\") }} IDR are available if the schedule below is followed.\n\nHeld, and who owns it:\n{{ $json.exceptions.length ? $json.exceptions.map(e => \"- [\" + e.code + \"] \" + e.vendor + \" \" + e.invoice + \" -> \" + e.owner + \" - \" + e.why).join(\"\\n\") : \"Nothing held. Every invoice matched.\" }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "notes": "The only thing a finance lead needs to read in the morning."
+    },
+    {
+      "id": "26ed34c0-a9f9-430d-b5b3-fe0b7047441b",
+      "name": "Respond to Caller",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2688,
+        96
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "notes": "onError set so a manual demo run, which has no webhook waiting, still finishes green.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "12c6e778-3201-416d-a693-47c19a3ff7ab",
+      "name": "Sticky Note a2e5440f",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        224,
+        -380
+      ],
+      "parameters": {
+        "content": "## 1 · Intake and master data\n\nInvoices arrive on the webhook, or the demo batch stands in when the workflow is run by hand. The PO book, the goods receipts and the already-posted ledger are each read once per run and matched in memory — one query per invoice would be slower and would not make the answer any better.",
+        "color": 4,
+        "width": 680,
+        "height": 320
+      }
+    },
+    {
+      "id": "09603dd5-3458-4d58-b9a1-c31ea7846611",
+      "name": "Sticky Note 97020018",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        924,
+        -380
+      ],
+      "parameters": {
+        "content": "## 2 · The decision\n\nOne node holds every rule, applied in a fixed order: field validation, duplicate guard, PO exists, goods actually received, quantity billed vs received, quantity vs PO, SKU, then price against a 2% tolerance with a 50,000 IDR floor.\n\nWhat survives is routed by value: under 10M posts itself, under 100M needs a manager, above that a director. Payment terms are read at the same time, so 2/10 NET 30 produces a pay-by date that captures the discount.",
+        "color": 3,
+        "width": 440,
+        "height": 320
+      }
+    },
+    {
+      "id": "3d7a1c3e-db18-44a4-b3c5-497895806a20",
+      "name": "Sticky Note 74fdbaae",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1384,
+        -380
+      ],
+      "parameters": {
+        "content": "## 3 · Three different pieces of paper\n\nA clean small invoice becomes a journal entry nobody reads. A clean large one becomes a single approval message with the match evidence already in it. Anything that failed becomes a ticket addressed to the team that can actually fix it — warehouse, procurement, or AP.",
+        "color": 5,
+        "width": 440,
+        "height": 320
+      }
+    },
+    {
+      "id": "6127aba9-ac54-4c55-8a18-ea859d2d7d73",
+      "name": "Sticky Note 009eac68",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1844,
+        -380
+      ],
+      "parameters": {
+        "content": "## 4 · Record, then report\n\nEvery decision is written back to the ledger. Accepted invoices are keyed on vendor plus invoice number — that row is what catches the same invoice when the vendor sends it again next month.\n\nRejected ones are keyed on that plus the failure code, and the duplicate index is built only from accepted rows. Two reasons. A rejected duplicate must not overwrite the record of the payment it was checked against — the first version of this did exactly that, and after one run the ledger no longer knew the August invoice had been paid. And an invoice rejected for a price variance has to be payable once procurement fixes the PO, not rejected again as a duplicate.\n\nIf the write itself fails the run does not go quietly. A lost ledger row is the one fault that can lead to paying twice.",
+        "color": 6,
+        "width": 1060,
+        "height": 320
+      }
+    },
+    {
+      "id": "9ec04613-b605-402b-85a9-93ed281af85a",
+      "name": "Collect All Decisions",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1792,
+        192
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3
+      },
+      "notes": "Fan-in. Without this the ledger write, the summary, the report and the webhook response each ran once per branch instead of once per batch."
+    },
+    {
+      "id": "ad2fe818-acb3-4fb5-9b52-b9450cc58fbd",
+      "name": "Ping the Approver in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1856,
+        560
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#ap-approvals"
+        },
+        "messageType": "text",
+        "text": "={{ $json.approval_message }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. The approval text is already composed upstream; this is only where it lands. Pick a channel and a Slack credential to switch it on.",
+      "webhookId": "048b793a-4d87-449b-9f35-89388606ae1f"
+    },
+    {
+      "id": "c1e0e013-464a-4213-a392-ff5f7be8c8d7",
+      "name": "Email the Team That Owns It",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1856,
+        720
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ ({ warehouse: 'gudang@example.com', procurement: 'purchasing@example.com', ap_clerk: 'ap@example.com', ap_supervisor: 'ap-lead@example.com' })[$json.ticket_owner] || 'ap@example.com' }}",
+        "subject": "=[{{ $json.exception_code }}] {{ $json.vendor }} — {{ $json.invoice_number || '(no invoice number)' }}",
+        "emailType": "text",
+        "message": "={{ $json.ticket_message }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "AP Automation"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. Each exception already knows which team owns it, so the address is chosen from ticket_owner rather than sent to one shared inbox nobody reads.",
+      "webhookId": "5c0125bc-f120-4101-ba92-cdaca2eabf33"
+    },
+    {
+      "id": "1f6886dc-48fd-4268-8ca4-b70eba296829",
+      "name": "Email the Morning AP Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        280
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "finance-lead@example.com",
+        "subject": "={{ $json.report_title }}",
+        "emailType": "text",
+        "message": "={{ $json.report }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "AP Automation"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. One message per run to the finance lead, not one per invoice.",
+      "webhookId": "31f06bb5-29a3-49b8-a9b2-441b4ca1c618"
+    },
+    {
+      "id": "fe801602-66cd-4c00-b665-2f448f78c231",
+      "name": "Sticky Note Destinations",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        880
+      ],
+      "parameters": {
+        "color": 7,
+        "width": 1320,
+        "height": 210,
+        "content": "## 5 · Where it actually goes\n\nAll four are **switched off on purpose** and carry no credential, so the demo still runs for anyone who opens it with nothing to set up. They are wired as side branches, not in line — the invoice data reaches the ledger by exactly the same path whether they are on or off.\n\n**Xero** takes the auto-approved bills as ACCPAY, status AUTHORISED, because only invoices that cleared the full three-way match under the touchless ceiling get this far. Xero's own planned payment date is fed from `pay_on`, so a 2/10 NET 30 discount is captured rather than missed.\n**Slack** pings the one approver who has to look at it, with the match evidence already in the message.\n**Gmail** sends each exception to the team that owns it — warehouse, procurement or AP — rather than to one shared inbox nobody reads, and sends the finance lead a single run report in the morning.\n\nTurn one on by attaching a credential and picking the organisation, channel or address. Nothing else changes."
+      }
+    },
+    {
+      "id": "a4e90363-4ecf-4c21-b7ce-c0a551fd8db1",
+      "name": "Post Bill to Xero",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "position": [
+        1856,
+        400
+      ],
+      "parameters": {
+        "resource": "invoice",
+        "operation": "create",
+        "organizationId": "",
+        "type": "ACCPAY",
+        "contactId": "={{ $json.vendor }}",
+        "lineItemsUi": {
+          "lineItemsValues": [
+            {
+              "description": "={{ $json.sku }} on {{ $json.po_number }} (GRN {{ $json.grn_numbers }})",
+              "quantity": "={{ $json.qty_billed }}",
+              "unitAmount": "={{ $json.unit_price }}",
+              "accountCode": "310",
+              "taxType": "INPUT"
+            }
+          ]
+        },
+        "additionalFields": {
+          "invoiceNumber": "={{ $json.invoice_number }}",
+          "date": "={{ $json.invoice_date }}",
+          "dueDate": "={{ $json.due_date }}",
+          "plannedPaymentDate": "={{ $json.pay_on }}",
+          "currency": "={{ $json.currency }}",
+          "lineAmountType": "Exclusive",
+          "status": "AUTHORISED"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled on purpose. Status is AUTHORISED, not DRAFT, because only invoices that cleared the full three-way match AND sit under the touchless ceiling ever reach this node — anything less certain went to an approver or the exception queue. Xero wants the supplier's ContactID (a GUID), not their name: a real deployment puts a Xero 'Contact > Get Many' lookup in front of this, or caches the vendor-to-ContactID map. Left as the vendor name so the intent is readable on the canvas."
+    }
+  ],
+  "connections": {
+    "AP Invoice Webhook": {
+      "main": [
+        [
+          {
+            "node": "Load Purchase Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Purchase Orders": {
+      "main": [
+        [
+          {
+            "node": "Load Goods Receipts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Demo Batch": {
+      "main": [
+        [
+          {
+            "node": "Load Purchase Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Goods Receipts": {
+      "main": [
+        [
+          {
+            "node": "Load Posted Invoice Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Posted Invoice Ledger": {
+      "main": [
+        [
+          {
+            "node": "Collect Invoice Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Invoice Batch": {
+      "main": [
+        [
+          {
+            "node": "Three-Way Match and Payment Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Three-Way Match and Payment Engine": {
+      "main": [
+        [
+          {
+            "node": "Route by Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Decision": {
+      "main": [
+        [
+          {
+            "node": "Draft Journal Entry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Draft Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Open Exception Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Open Exception Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to Invoice Ledger": {
+      "main": [
+        [
+          {
+            "node": "Build Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ledger Write Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Run Summary": {
+      "main": [
+        [
+          {
+            "node": "Format Run Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Run Report": {
+      "main": [
+        [
+          {
+            "node": "Respond to Caller",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email the Morning AP Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Journal Entry": {
+      "main": [
+        [
+          {
+            "node": "Collect All Decisions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post Bill to Xero",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Collect All Decisions",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Ping the Approver in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Exception Ticket": {
+      "main": [
+        [
+          {
+            "node": "Collect All Decisions",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Email the Team That Owns It",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect All Decisions": {
+      "main": [
+        [
+          {
+            "node": "Write to Invoice Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}

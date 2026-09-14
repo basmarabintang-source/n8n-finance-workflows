@@ -1,0 +1,296 @@
+{
+  "name": "[PORTFOLIO] Reset AP Demo Ledger",
+  "nodes": [
+    {
+      "id": "37d6b9c0-b627-46bf-a04f-9aebf4d885f6",
+      "name": "Reset the Demo",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "ab970eaf-a992-4f54-ace9-b1a6e92b4d8e",
+      "name": "Clear Invoice Ledger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Bp66pyZNrs2qQyBl",
+          "cachedResultName": "AP Invoice Ledger"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "Every row, including rows written by earlier demo runs. The ledger is demo data, not a real book of record.",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "4cf00ae4-9529-4710-84d3-9b3046676132",
+      "name": "Seed the August Payment",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Bp66pyZNrs2qQyBl",
+          "cachedResultName": "AP Invoice Ledger"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoice_key",
+              "condition": "eq",
+              "keyValue": "CAHAYA TEKNIK PRESISI|INV-8899"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "invoice_key"
+          ],
+          "value": {
+            "invoice_key": "CAHAYA TEKNIK PRESISI|INV-8899",
+            "vendor": "Cahaya Teknik Presisi",
+            "invoice_number": "INV-8899",
+            "po_number": "PO-2026-4404",
+            "amount": 18900000,
+            "currency": "IDR",
+            "decision": "posted",
+            "route_to": "accounting",
+            "exception_code": "",
+            "note": "Posted in the 2026-08 close. Seeded so the duplicate guard has a real prior payment to catch.",
+            "processed_at": "2026-08-29T09:14:00.000Z",
+            "execution_id": "seed"
+          },
+          "schema": [
+            {
+              "id": "invoice_key",
+              "displayName": "invoice_key",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_number",
+              "displayName": "invoice_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "po_number",
+              "displayName": "po_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "route_to",
+              "displayName": "route_to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "exception_code",
+              "displayName": "exception_code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "note",
+              "displayName": "note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "executeOnce, or this would run once per deleted row.",
+      "executeOnce": true
+    },
+    {
+      "id": "f1d0a324-e8b1-40c0-ba23-e00c93f315d9",
+      "name": "Confirm Reset",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cr-msg",
+              "name": "result",
+              "value": "=Ledger cleared and reseeded with the one August payment. Run the 3-way match demo now and all nine branches will fire cleanly.",
+              "type": "string"
+            },
+            {
+              "id": "cr-rows",
+              "name": "rows_deleted",
+              "value": "={{ $(\"Clear Invoice Ledger\").all().length }}",
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "24008b97-4e5e-4b81-ac31-c98747dc1ba5",
+      "name": "Sticky Note 031324af",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        272,
+        0
+      ],
+      "parameters": {
+        "content": "## Reset the AP demo\n\nThe 3-way match workflow writes a row for every invoice it decides on, so after a few demo runs the ledger fills up with run-specific invoice numbers.\n\nRun this to empty it and put back the single August payment that the duplicate guard is supposed to catch. Nothing here touches the purchase orders or the goods receipts.",
+        "color": 3
+      }
+    }
+  ],
+  "connections": {
+    "Reset the Demo": {
+      "main": [
+        [
+          {
+            "node": "Clear Invoice Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Invoice Ledger": {
+      "main": [
+        [
+          {
+            "node": "Seed the August Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seed the August Payment": {
+      "main": [
+        [
+          {
+            "node": "Confirm Reset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}

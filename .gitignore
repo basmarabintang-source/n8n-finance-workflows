@@ -1,0 +1,5 @@
+# nothing here should ever be ignored — this repo is public on purpose.
+# listed only so a stray editor/OS file cannot sneak in.
+.DS_Store
+Thumbs.db
+*.swp

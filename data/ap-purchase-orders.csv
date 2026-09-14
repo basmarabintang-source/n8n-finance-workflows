@@ -1,0 +1,7 @@
+po_number,vendor,sku,description,qty_ordered,unit_price,currency,status,buyer
+PO-2026-4401,Sinar Baja Elektrik,CBL-3C-25,Cable 3-core 2.5mm (roll 100m),40,875000,IDR,open,Dewi P.
+PO-2026-4402,Mitra Logistik Nusantara,FRT-JKT-SBY,"Freight Jakarta-Surabaya, per trip",12,4200000,IDR,open,Rangga S.
+PO-2026-4403,PT Kemasan Prima,BOX-A4-DBL,Double-wall carton A4,5000,9400,IDR,open,Dewi P.
+PO-2026-4404,Cahaya Teknik Presisi,BRG-6204,Bearing 6204-2RS,600,31500,IDR,open,Yusuf A.
+PO-2026-4405,Sinar Baja Elektrik,PNL-MCB-63,Panel MCB 63A 3-phase,8,2750000,IDR,open,Yusuf A.
+PO-2026-4406,Cahaya Teknik Presisi,CNC-VMC-850,CNC vertical machining centre VMC-850,1,1450000000,IDR,open,Yusuf A.

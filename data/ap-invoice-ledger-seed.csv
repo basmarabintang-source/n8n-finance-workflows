@@ -1,0 +1,2 @@
+invoice_key,vendor,invoice_number,po_number,amount,currency,decision,route_to,exception_code,note,processed_at,execution_id
+CAHAYA TEKNIK PRESISI|INV-8899,Cahaya Teknik Presisi,INV-8899,PO-2026-4404,18900000,IDR,posted,accounting,,Posted in the 2026-08 close. Seeded so the duplicate guard has a real prior payment to catch.,2026-08-29T09:14:00.000Z,seed
