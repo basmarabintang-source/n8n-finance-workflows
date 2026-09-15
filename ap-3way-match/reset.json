@@ -2,6 +2,7 @@
   "name": "[PORTFOLIO] Reset AP Demo Ledger",
   "nodes": [
     {
+      "parameters": {},
       "id": "37d6b9c0-b627-46bf-a04f-9aebf4d885f6",
       "name": "Reset the Demo",
       "type": "n8n-nodes-base.manualTrigger",
@@ -9,20 +10,10 @@
       "position": [
         0,
         0
-      ],
-      "parameters": {}
+      ]
     },
     {
-      "id": "ab970eaf-a992-4f54-ace9-b1a6e92b4d8e",
-      "name": "Clear Invoice Ledger",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        224,
-        0
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "deleteRows",
         "dataTableId": {
           "__rl": true,
@@ -34,7 +25,6 @@
         "filters": {
           "conditions": [
             {
-              "keyName": "id",
               "condition": "gte",
               "keyValue": "1"
             }
@@ -42,20 +32,19 @@
         },
         "options": {}
       },
-      "notes": "Every row, including rows written by earlier demo runs. The ledger is demo data, not a real book of record.",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "4cf00ae4-9529-4710-84d3-9b3046676132",
-      "name": "Seed the August Payment",
+      "id": "ab970eaf-a992-4f54-ace9-b1a6e92b4d8e",
+      "name": "Clear Invoice Ledger",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        448,
+        224,
         0
       ],
+      "alwaysOutputData": true,
+      "notes": "Every row, including rows written by earlier demo runs. The ledger is demo data, not a real book of record."
+    },
+    {
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
@@ -68,7 +57,6 @@
           "conditions": [
             {
               "keyName": "invoice_key",
-              "condition": "eq",
               "keyValue": "CAHAYA TEKNIK PRESISI|INV-8899"
             }
           ]
@@ -88,9 +76,10 @@
             "decision": "posted",
             "route_to": "accounting",
             "exception_code": "",
-            "note": "Posted in the 2026-08 close. Seeded so the duplicate guard has a real prior payment to catch.",
+            "note": "Posted in the 2026-08 close for the whole of GRN-88104. Seeded so the duplicate guard has a real prior payment to catch, and so the 600 units it consumed are already gone when the next invoice tries to bill the same receipt.",
             "processed_at": "2026-08-29T09:14:00.000Z",
-            "execution_id": "seed"
+            "execution_id": "seed",
+            "qty_billed": 600
           },
           "schema": [
             {
@@ -200,32 +189,39 @@
               "display": true,
               "type": "string",
               "canBeUsedToMatch": true
+            },
+            {
+              "id": "qty_billed",
+              "displayName": "qty_billed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
             }
           ]
         },
         "options": {}
       },
-      "notes": "executeOnce, or this would run once per deleted row.",
-      "executeOnce": true
-    },
-    {
-      "id": "f1d0a324-e8b1-40c0-ba23-e00c93f315d9",
-      "name": "Confirm Reset",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "id": "4cf00ae4-9529-4710-84d3-9b3046676132",
+      "name": "Seed the August Payment",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
       "position": [
-        672,
+        448,
         0
       ],
+      "executeOnce": true,
+      "notes": "executeOnce, or this would run once per deleted row."
+    },
+    {
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": false,
         "assignments": {
           "assignments": [
             {
               "id": "cr-msg",
               "name": "result",
-              "value": "=Ledger cleared and reseeded with the one August payment. Run the 3-way match demo now and all nine branches will fire cleanly.",
+              "value": "=Ledger cleared and reseeded with the one August payment. Run the 3-way match demo now. Every branch fires on this first run; a second run without another reset will legitimately hold most invoices, because the goods receipts have then been drawn down.",
               "type": "string"
             },
             {
@@ -235,22 +231,33 @@
               "type": "number"
             }
           ]
-        }
-      }
+        },
+        "options": {}
+      },
+      "id": "f1d0a324-e8b1-40c0-ba23-e00c93f315d9",
+      "name": "Confirm Reset",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        0
+      ]
     },
     {
+      "parameters": {
+        "content": "## Reset the AP demo\n\nThe 3-way match workflow writes a row for every invoice it decides on, so after a few demo runs the ledger fills up with run-specific invoice numbers.\n\nRun this to empty it and put back the single August payment that the duplicate guard is supposed to catch. Nothing here touches the purchase orders or the goods receipts.",
+        "height": 320,
+        "width": 960,
+        "color": 3
+      },
       "id": "24008b97-4e5e-4b81-ac31-c98747dc1ba5",
       "name": "Sticky Note 031324af",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        272,
-        0
-      ],
-      "parameters": {
-        "content": "## Reset the AP demo\n\nThe 3-way match workflow writes a row for every invoice it decides on, so after a few demo runs the ledger fills up with run-specific invoice numbers.\n\nRun this to empty it and put back the single August payment that the duplicate guard is supposed to catch. Nothing here touches the purchase orders or the goods receipts.",
-        "color": 3
-      }
+        -96,
+        -176
+      ]
     }
   ],
   "connections": {
@@ -290,7 +297,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "availableInMCP": true
+    "availableInMCP": true,
+    "binaryMode": "separate"
   },
   "pinData": {}
 }

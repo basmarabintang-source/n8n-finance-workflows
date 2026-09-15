@@ -2,6 +2,7 @@
   "name": "[PORTFOLIO] Reset AR Demo",
   "nodes": [
     {
+      "parameters": {},
       "id": "745971d3-9e64-44b5-81fd-0a950eb4ed12",
       "name": "Reseed the AR Demo",
       "type": "n8n-nodes-base.manualTrigger",
@@ -9,20 +10,10 @@
       "position": [
         0,
         192
-      ],
-      "parameters": {}
+      ]
     },
     {
-      "id": "d961f210-b8f4-4014-8294-f823d182376d",
-      "name": "Clear Collection Log",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        224,
-        192
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "deleteRows",
         "dataTableId": {
           "__rl": true,
@@ -34,7 +25,6 @@
         "filters": {
           "conditions": [
             {
-              "keyName": "id",
               "condition": "gte",
               "keyValue": "1"
             }
@@ -42,10 +32,21 @@
         },
         "options": {}
       },
-      "notes": "Wiped first. The collection log is what the cadence guard reads, so a stale one would suppress chases that should go out.",
-      "alwaysOutputData": true
+      "id": "d961f210-b8f4-4014-8294-f823d182376d",
+      "name": "Clear Collection Log",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        192
+      ],
+      "alwaysOutputData": true,
+      "notes": "Wiped first. The collection log is what the cadence guard reads, so a stale one would suppress chases that should go out."
     },
     {
+      "parameters": {
+        "jsCode": "const TERMS_DAYS = { 'C-001': 30, 'C-002': 30, 'C-003': 45, 'C-004': 14, 'C-005': 45, 'C-006': 14, 'C-007': 30 };\n\nfunction iso(offsetDays) {\n  const t = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');\n  return new Date(t - offsetDays * 86400000).toISOString().slice(0, 10);\n}\n\nconst today = iso(0);\n\nconst customers = [\n  { customer_id: 'C-001', name: 'Toko Maju Jaya', segment: 'Retail', contact_name: 'Budi Santoso', contact_email: 'budi@majujaya.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 150000000, payment_terms: 'NET 30', risk_rating: 'low' },\n  { customer_id: 'C-002', name: 'CV Anugerah Teknik', segment: 'Trade', contact_name: 'Siti Rahayu', contact_email: 'siti@anugerahteknik.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 80000000, payment_terms: 'NET 30', risk_rating: 'medium' },\n  { customer_id: 'C-003', name: 'PT Sumber Rejeki Abadi', segment: 'Enterprise', contact_name: 'Andi Pratama', contact_email: 'andi@sumberrejeki.example.com', account_manager: 'Fajar H.', account_manager_slack: '@fajar', credit_limit: 500000000, payment_terms: 'NET 45', risk_rating: 'low' },\n  { customer_id: 'C-004', name: 'Bengkel Karya Mandiri', segment: 'Retail', contact_name: 'Joko Susilo', contact_email: 'joko@karyamandiri.example.com', account_manager: 'Fajar H.', account_manager_slack: '@fajar', credit_limit: 40000000, payment_terms: 'NET 14', risk_rating: 'high' },\n  { customer_id: 'C-005', name: 'PT Global Niaga Persada', segment: 'Enterprise', contact_name: 'Maya Kusuma', contact_email: 'maya@globalniaga.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 750000000, payment_terms: 'NET 45', risk_rating: 'low' },\n  { customer_id: 'C-006', name: 'UD Sinar Terang', segment: 'Retail', contact_name: 'Hendra Wijaya', contact_email: 'hendra@sinarterang.example.com', account_manager: 'Fajar H.', account_manager_slack: '@fajar', credit_limit: 15000000, payment_terms: 'NET 14', risk_rating: 'medium' },\n  { customer_id: 'C-007', name: 'PT Karya Bersama Sentosa', segment: 'Trade', contact_name: 'Dewi Lestari', contact_email: 'dewi@karyabersama.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 60000000, payment_terms: 'NET 30', risk_rating: 'medium' }\n];\n\nconst seeds = [\n  { invoice_number: 'INV-7001', customer_id: 'C-001', over: -5, amount: 12000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-MJ-2211' },\n  { invoice_number: 'INV-7002', customer_id: 'C-003', over: -2, amount: 180000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-SRA-0914' },\n  { invoice_number: 'INV-7003', customer_id: 'C-002', over: 4, amount: 8500000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-AT-3390' },\n  { invoice_number: 'INV-7004', customer_id: 'C-002', over: 15, amount: 22000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-AT-3352' },\n  { invoice_number: 'INV-7005', customer_id: 'C-004', over: 33, amount: 6750000, amount_paid: 2000000, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-KM-0771' },\n  { invoice_number: 'INV-7006', customer_id: 'C-006', over: 72, amount: 14300000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-ST-1180' },\n  { invoice_number: 'INV-7007', customer_id: 'C-005', over: 25, amount: 95000000, amount_paid: 0, status: 'disputed', promise_offset: null, dispute_reason: 'Customer says 40 of 200 units arrived damaged; credit note requested, quality team still inspecting.', po_reference: 'PO-GNP-5540' },\n  { invoice_number: 'INV-7008', customer_id: 'C-001', over: 19, amount: 31000000, amount_paid: 0, status: 'promised', promise_offset: -4, dispute_reason: '', po_reference: 'PO-MJ-2190' },\n  { invoice_number: 'INV-7009', customer_id: 'C-004', over: 51, amount: 9900000, amount_paid: 0, status: 'promised', promise_offset: 6, dispute_reason: '', po_reference: 'PO-KM-0742' },\n  { invoice_number: 'INV-7010', customer_id: 'C-003', over: 9, amount: 240000000, amount_paid: 240000000, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-SRA-0888' },\n  { invoice_number: 'INV-7011', customer_id: 'C-006', over: 12, amount: 3200000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-ST-1206' },\n  { invoice_number: 'INV-7012', customer_id: 'C-005', over: 6, amount: 45000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-GNP-5602' },\n  { invoice_number: 'INV-7013', customer_id: 'C-007', over: 11, amount: 26500000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-KBS-4410' }\n];\n\nconst out = [];\n\nfor (const c of customers) {\n  out.push({ json: Object.assign({ _table: 'customers' }, c) });\n}\n\nfor (const s of seeds) {\n  const due = iso(s.over);\n  const terms = TERMS_DAYS[s.customer_id] || 30;\n  out.push({\n    json: {\n      _table: 'invoices',\n      invoice_number: s.invoice_number,\n      customer_id: s.customer_id,\n      issue_date: iso(s.over + terms),\n      due_date: due,\n      amount: s.amount,\n      amount_paid: s.amount_paid,\n      currency: 'IDR',\n      status: s.status,\n      promise_date: s.promise_offset === null ? '' : iso(s.promise_offset),\n      dispute_reason: s.dispute_reason,\n      po_reference: s.po_reference,\n      days_overdue_seed: s.over\n    }\n  });\n}\n\nout.push({\n  json: {\n    _table: 'history',\n    log_key: 'C-005|' + iso(1) + '|chased',\n    customer_id: 'C-005',\n    invoice_numbers: 'INV-7012',\n    stage: 'reminder',\n    action: 'chased',\n    channel: 'email',\n    recipient: 'maya@globalniaga.example.com',\n    amount_chased: 45000000,\n    sent_on: iso(1),\n    execution_id: 'seed',\n    held_invoice_numbers: '',\n    held_reason: '',\n    note: 'Seeded fixture: contacted yesterday, so the cadence guard has a real prior contact to suppress against.'\n  }\n});\n\n// Seeded fixture for the re-run case: C-007 was already chased EARLIER TODAY by a\n// previous run. Every run of the collections workflow is therefore a second run for\n// this customer, and this row must come out the other side untouched - same action,\n// same recipient, same amount_chased - while the hold is recorded under its own key.\nout.push({\n  json: {\n    _table: 'history',\n    log_key: 'C-007|' + today + '|chased',\n    customer_id: 'C-007',\n    invoice_numbers: 'INV-7013',\n    stage: 'firm',\n    action: 'chased',\n    channel: 'email',\n    recipient: 'dewi@karyabersama.example.com',\n    amount_chased: 26500000,\n    sent_on: today,\n    execution_id: 'seed-earlier-run-today',\n    held_invoice_numbers: '',\n    held_reason: '',\n    note: 'Seeded fixture: this mornings first run already chased C-007. A re-run must leave this row exactly as it is instead of rewriting it to held.'\n  }\n});\n\nreturn out;\n"
+      },
       "id": "fa31aec2-7fed-4263-8af4-78db4419a7d2",
       "name": "Build the Demo Dataset",
       "type": "n8n-nodes-base.code",
@@ -54,28 +55,14 @@
         448,
         192
       ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "const TERMS_DAYS = { 'C-001': 30, 'C-002': 30, 'C-003': 45, 'C-004': 14, 'C-005': 45, 'C-006': 14 };\n\nfunction iso(offsetDays) {\n  const t = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');\n  return new Date(t - offsetDays * 86400000).toISOString().slice(0, 10);\n}\n\nconst customers = [\n  { customer_id: 'C-001', name: 'Toko Maju Jaya', segment: 'Retail', contact_name: 'Budi Santoso', contact_email: 'budi@majujaya.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 150000000, payment_terms: 'NET 30', risk_rating: 'low' },\n  { customer_id: 'C-002', name: 'CV Anugerah Teknik', segment: 'Trade', contact_name: 'Siti Rahayu', contact_email: 'siti@anugerahteknik.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 80000000, payment_terms: 'NET 30', risk_rating: 'medium' },\n  { customer_id: 'C-003', name: 'PT Sumber Rejeki Abadi', segment: 'Enterprise', contact_name: 'Andi Pratama', contact_email: 'andi@sumberrejeki.example.com', account_manager: 'Fajar H.', account_manager_slack: '@fajar', credit_limit: 500000000, payment_terms: 'NET 45', risk_rating: 'low' },\n  { customer_id: 'C-004', name: 'Bengkel Karya Mandiri', segment: 'Retail', contact_name: 'Joko Susilo', contact_email: 'joko@karyamandiri.example.com', account_manager: 'Fajar H.', account_manager_slack: '@fajar', credit_limit: 40000000, payment_terms: 'NET 14', risk_rating: 'high' },\n  { customer_id: 'C-005', name: 'PT Global Niaga Persada', segment: 'Enterprise', contact_name: 'Maya Kusuma', contact_email: 'maya@globalniaga.example.com', account_manager: 'Rina W.', account_manager_slack: '@rina', credit_limit: 750000000, payment_terms: 'NET 45', risk_rating: 'low' },\n  { customer_id: 'C-006', name: 'UD Sinar Terang', segment: 'Retail', contact_name: 'Hendra Wijaya', contact_email: 'hendra@sinarterang.example.com', account_manager: 'Fajar H.', account_manager_slack: '@fajar', credit_limit: 15000000, payment_terms: 'NET 14', risk_rating: 'medium' }\n];\n\nconst seeds = [\n  { invoice_number: 'INV-7001', customer_id: 'C-001', over: -5, amount: 12000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-MJ-2211' },\n  { invoice_number: 'INV-7002', customer_id: 'C-003', over: -2, amount: 180000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-SRA-0914' },\n  { invoice_number: 'INV-7003', customer_id: 'C-002', over: 4, amount: 8500000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-AT-3390' },\n  { invoice_number: 'INV-7004', customer_id: 'C-002', over: 15, amount: 22000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-AT-3352' },\n  { invoice_number: 'INV-7005', customer_id: 'C-004', over: 33, amount: 6750000, amount_paid: 2000000, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-KM-0771' },\n  { invoice_number: 'INV-7006', customer_id: 'C-006', over: 72, amount: 14300000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-ST-1180' },\n  { invoice_number: 'INV-7007', customer_id: 'C-005', over: 25, amount: 95000000, amount_paid: 0, status: 'disputed', promise_offset: null, dispute_reason: 'Customer says 40 of 200 units arrived damaged; credit note requested, quality team still inspecting.', po_reference: 'PO-GNP-5540' },\n  { invoice_number: 'INV-7008', customer_id: 'C-001', over: 19, amount: 31000000, amount_paid: 0, status: 'promised', promise_offset: -4, dispute_reason: '', po_reference: 'PO-MJ-2190' },\n  { invoice_number: 'INV-7009', customer_id: 'C-004', over: 51, amount: 9900000, amount_paid: 0, status: 'promised', promise_offset: 6, dispute_reason: '', po_reference: 'PO-KM-0742' },\n  { invoice_number: 'INV-7010', customer_id: 'C-003', over: 9, amount: 240000000, amount_paid: 240000000, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-SRA-0888' },\n  { invoice_number: 'INV-7011', customer_id: 'C-006', over: 12, amount: 3200000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-ST-1206' },\n  { invoice_number: 'INV-7012', customer_id: 'C-005', over: 6, amount: 45000000, amount_paid: 0, status: 'open', promise_offset: null, dispute_reason: '', po_reference: 'PO-GNP-5602' }\n];\n\nconst out = [];\n\nfor (const c of customers) {\n  out.push({ json: Object.assign({ _table: 'customers' }, c) });\n}\n\nfor (const s of seeds) {\n  const due = iso(s.over);\n  const terms = TERMS_DAYS[s.customer_id] || 30;\n  out.push({\n    json: {\n      _table: 'invoices',\n      invoice_number: s.invoice_number,\n      customer_id: s.customer_id,\n      issue_date: iso(s.over + terms),\n      due_date: due,\n      amount: s.amount,\n      amount_paid: s.amount_paid,\n      currency: 'IDR',\n      status: s.status,\n      promise_date: s.promise_offset === null ? '' : iso(s.promise_offset),\n      dispute_reason: s.dispute_reason,\n      po_reference: s.po_reference,\n      days_overdue_seed: s.over\n    }\n  });\n}\n\nout.push({\n  json: {\n    _table: 'history',\n    log_key: 'C-005|seeded-yesterday',\n    customer_id: 'C-005',\n    invoice_numbers: 'INV-7012',\n    stage: 'reminder',\n    action: 'chased',\n    channel: 'email',\n    recipient: 'maya@globalniaga.example.com',\n    amount_chased: 45000000,\n    sent_on: iso(1),\n    execution_id: 'seed',\n    note: 'Seeded fixture: contacted yesterday, so the cadence guard has a real prior contact to suppress against.'\n  }\n});\n\nreturn out;"
-      },
-      "notes": "Due dates are computed from today, not stored as fixed dates. That is what keeps the demo honest whenever it is run rather than slowly rotting into every invoice being 200 days late.",
-      "executeOnce": true
+      "executeOnce": true,
+      "notes": "Due dates are computed from today, not stored as fixed dates. That is what keeps the demo honest whenever it is run rather than slowly rotting into every invoice being 200 days late."
     },
     {
-      "id": "fc85698b-3077-4876-8582-a88b13d63e52",
-      "name": "Route by Table",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3.4,
-      "position": [
-        672,
-        176
-      ],
       "parameters": {
         "rules": {
           "values": [
             {
-              "outputKey": "customers",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -98,7 +85,6 @@
               }
             },
             {
-              "outputKey": "invoices",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -121,7 +107,6 @@
               }
             },
             {
-              "outputKey": "history",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -146,19 +131,18 @@
           ]
         },
         "options": {}
-      }
+      },
+      "id": "fc85698b-3077-4876-8582-a88b13d63e52",
+      "name": "Route by Table",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        176
+      ]
     },
     {
-      "id": "6a7d48a8-2a4f-4664-b845-5f549945144d",
-      "name": "Upsert Customers",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        896,
-        0
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
@@ -171,7 +155,6 @@
           "conditions": [
             {
               "keyName": "customer_id",
-              "condition": "eq",
               "keyValue": "={{ $json.customer_id }}"
             }
           ]
@@ -195,9 +178,20 @@
           }
         },
         "options": {}
-      }
+      },
+      "id": "6a7d48a8-2a4f-4664-b845-5f549945144d",
+      "name": "Upsert Customers",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        0
+      ]
     },
     {
+      "parameters": {
+        "numberInputs": 3
+      },
       "id": "80b8788a-5068-42a5-8893-5adb17a84b78",
       "name": "Collect Seed Results",
       "type": "n8n-nodes-base.merge",
@@ -205,23 +199,10 @@
       "position": [
         1120,
         176
-      ],
-      "parameters": {
-        "mode": "append",
-        "numberInputs": 3
-      }
+      ]
     },
     {
-      "id": "b9bef95e-bb89-458d-a95c-9db4c519088e",
-      "name": "Upsert Invoices",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        896,
-        192
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
@@ -234,7 +215,6 @@
           "conditions": [
             {
               "keyName": "invoice_number",
-              "condition": "eq",
               "keyValue": "={{ $json.invoice_number }}"
             }
           ]
@@ -260,19 +240,18 @@
           }
         },
         "options": {}
-      }
-    },
-    {
-      "id": "fcec22b7-a456-4682-b41c-da07bdfb543a",
-      "name": "Upsert Collection History",
+      },
+      "id": "b9bef95e-bb89-458d-a95c-9db4c519088e",
+      "name": "Upsert Invoices",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
         896,
-        384
-      ],
+        192
+      ]
+    },
+    {
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
@@ -285,7 +264,6 @@
           "conditions": [
             {
               "keyName": "log_key",
-              "condition": "eq",
               "keyValue": "={{ $json.log_key }}"
             }
           ]
@@ -306,24 +284,24 @@
             "amount_chased": "={{ $json.amount_chased }}",
             "sent_on": "={{ $json.sent_on }}",
             "execution_id": "={{ $json.execution_id }}",
-            "note": "={{ $json.note }}"
+            "note": "={{ $json.note }}",
+            "held_invoice_numbers": "={{ $json.held_invoice_numbers }}",
+            "held_reason": "={{ $json.held_reason }}"
           }
         },
         "options": {}
-      }
+      },
+      "id": "fcec22b7-a456-4682-b41c-da07bdfb543a",
+      "name": "Upsert Collection History",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        384
+      ]
     },
     {
-      "id": "ce797498-9aff-4d93-aa9a-a1f2b5bf20fc",
-      "name": "Confirm Reseed",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        1344,
-        192
-      ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": false,
         "assignments": {
           "assignments": [
             {
@@ -345,23 +323,34 @@
               "type": "number"
             }
           ]
-        }
+        },
+        "options": {}
       },
+      "id": "ce797498-9aff-4d93-aa9a-a1f2b5bf20fc",
+      "name": "Confirm Reseed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        192
+      ],
       "executeOnce": true
     },
     {
+      "parameters": {
+        "content": "## Reset the AR collections demo\n\nRun this before the collections workflow, and any time the demo has drifted.\n\nThe invoice due dates are **computed from today**, not stored as fixed dates. That is the difference between a demo that still makes sense next month and one where every invoice is 200 days overdue and the whole dunning ladder collapses into \"legal\".\n\nIt also wipes the collection log, because that log is what the cadence guard reads. A stale log would silently suppress chases that ought to go out.",
+        "height": 768,
+        "width": 1600,
+        "color": 3
+      },
       "id": "83aed76d-f75d-4ea2-a95b-c7e700fd4c4d",
       "name": "Sticky Note 6c223e23",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        608,
-        384
-      ],
-      "parameters": {
-        "content": "## Reset the AR collections demo\n\nRun this before the collections workflow, and any time the demo has drifted.\n\nThe invoice due dates are **computed from today**, not stored as fixed dates. That is the difference between a demo that still makes sense next month and one where every invoice is 200 days overdue and the whole dunning ladder collapses into \"legal\".\n\nIt also wipes the collection log, because that log is what the cadence guard reads. A stale log would silently suppress chases that ought to go out.",
-        "color": 3
-      }
+        -64,
+        -208
+      ]
     }
   ],
   "connections": {
@@ -470,7 +459,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "availableInMCP": true
+    "availableInMCP": true,
+    "binaryMode": "separate"
   },
   "pinData": {}
 }

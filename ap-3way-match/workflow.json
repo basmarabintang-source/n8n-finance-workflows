@@ -2,34 +2,24 @@
   "name": "[PORTFOLIO] Invoice Processing and 3-Way Match",
   "nodes": [
     {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "portfolio-ap-invoice-batch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
       "id": "290ec560-9fcd-4d3e-b518-c4d8d287e076",
       "name": "AP Invoice Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
         0,
-        96
+        352
       ],
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "portfolio-ap-invoice-batch",
-        "authentication": "none",
-        "responseMode": "responseNode",
-        "options": {}
-      },
       "webhookId": "4de68ba8-5d4d-49d9-bd2c-56147b8cf062"
     },
     {
-      "id": "f78f97fa-ffed-474e-953e-98db717c0643",
-      "name": "Load Purchase Orders",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        224,
-        192
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
@@ -43,30 +33,29 @@
         },
         "returnAll": true
       },
+      "id": "f78f97fa-ffed-474e-953e-98db717c0643",
+      "name": "Load Purchase Orders",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        352
+      ],
       "notes": "Whole PO book, read once per run. Small master table, so matching in memory beats one query per invoice."
     },
     {
+      "parameters": {},
       "id": "af9e863e-c2ef-4df3-be3d-9fcb64079da0",
       "name": "Run Demo Batch",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
         0,
-        288
-      ],
-      "parameters": {}
+        544
+      ]
     },
     {
-      "id": "016190d1-137a-4eb0-9da8-f4f35538b33d",
-      "name": "Load Goods Receipts",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        448,
-        192
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
@@ -80,20 +69,19 @@
         },
         "returnAll": true
       },
-      "notes": "executeOnce, otherwise this would run once for every PO row arriving from the previous node.",
-      "executeOnce": true
-    },
-    {
-      "id": "464b6089-339f-4f31-978c-ea882c805d2c",
-      "name": "Load Posted Invoice Ledger",
+      "id": "016190d1-137a-4eb0-9da8-f4f35538b33d",
+      "name": "Load Goods Receipts",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        672,
-        192
+        448,
+        352
       ],
+      "executeOnce": true,
+      "notes": "executeOnce, otherwise this would run once for every PO row arriving from the previous node."
+    },
+    {
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
@@ -107,56 +95,51 @@
         },
         "returnAll": true
       },
-      "notes": "alwaysOutputData is deliberate here: an empty ledger is the normal state on day one, and the batch must still be processed.",
+      "id": "464b6089-339f-4f31-978c-ea882c805d2c",
+      "name": "Load Posted Invoice Ledger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        352
+      ],
       "executeOnce": true,
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData is deliberate here: an empty ledger is the normal state on day one, and the batch must still be processed."
     },
     {
+      "parameters": {
+        "jsCode": "let supplied = null;\ntry {\n  const hook = $('AP Invoice Webhook').first().json;\n  const body = hook && hook.body ? hook.body : hook;\n  if (body && Array.isArray(body.invoices) && body.invoices.length) supplied = body.invoices;\n} catch (e) {\n  supplied = null;\n}\n\nif (supplied) {\n  return supplied.map(function (r) {\n    return { json: Object.assign({ source: 'webhook' }, r) };\n  });\n}\n\nconst run = String($execution.id || 'DEMO');\nconst tag = 'R' + run;\n\nconst fixtures = [\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-01',\n    invoice_date: '2026-09-09',\n    po_number: 'PO-2026-4401',\n    sku: 'CBL-3C-25',\n    qty_billed: 10,\n    unit_price: 876000,\n    amount: 8760000,\n    currency: 'IDR',\n    payment_terms: '2/10 NET 30',\n    expected: 'auto_approve - price 0.11 percent over PO, inside the 2 percent tolerance, and under the touchless ceiling'\n  },\n  {\n    vendor: 'Mitra Logistik Nusantara',\n    invoice_number: 'INV-' + tag + '-02',\n    invoice_date: '2026-09-06',\n    po_number: 'PO-2026-4402',\n    sku: 'FRT-JKT-SBY',\n    qty_billed: 12,\n    unit_price: 4200000,\n    amount: 50400000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'needs_approval manager - clean match but over the touchless ceiling'\n  },\n  {\n    vendor: 'PT Kemasan Prima',\n    invoice_number: 'INV-' + tag + '-03',\n    invoice_date: '2026-09-07',\n    po_number: 'PO-2026-4403',\n    sku: 'BOX-A4-DBL',\n    qty_billed: 5000,\n    unit_price: 9400,\n    amount: 47000000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception QTY_MISMATCH - vendor billed the full order, warehouse only booked in 4600'\n  },\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-04',\n    invoice_date: '2026-09-10',\n    po_number: 'PO-2026-4405',\n    sku: 'PNL-MCB-63',\n    qty_billed: 8,\n    unit_price: 2750000,\n    amount: 22000000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception NO_RECEIPT - invoiced before the goods were booked in'\n  },\n  {\n    vendor: 'Berkah Jaya Mandiri',\n    invoice_number: 'INV-' + tag + '-05',\n    invoice_date: '2026-09-08',\n    po_number: 'PO-2026-9999',\n    sku: 'MISC-01',\n    qty_billed: 4,\n    unit_price: 1500000,\n    amount: 6000000,\n    currency: 'IDR',\n    payment_terms: 'NET 14',\n    expected: 'exception PO_NOT_FOUND - no such purchase order'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: '',\n    invoice_date: '',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 100,\n    unit_price: 31500,\n    amount: 0,\n    currency: 'USD',\n    payment_terms: 'NET 30',\n    expected: 'exception VALIDATION - unreadable scan, four separate field problems'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-8899',\n    invoice_date: '2026-08-27',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 600,\n    unit_price: 31500,\n    amount: 18900000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception DUPLICATE - already paid in the August close, vendor re-sent it'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-' + tag + '-08',\n    invoice_date: '2026-09-11',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 600,\n    unit_price: 33600,\n    amount: 20160000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception OVER_CONSUMPTION - GRN-88104 was already fully billed by INV-8899 in the August close, so nothing is left open on this PO. The price is also 6.67 percent over, but over-consumption is the more serious finding and is checked first'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-' + tag + '-09',\n    invoice_date: '2026-09-12',\n    po_number: 'PO-2026-4406',\n    sku: 'CNC-VMC-850',\n    qty_billed: 1,\n    unit_price: 1450000000,\n    amount: 1450000000,\n    currency: 'IDR',\n    payment_terms: 'NET 45',\n    expected: 'needs_approval director - clean match, capex above the manager ceiling'\n  },\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-10',\n    invoice_date: '2026-09-12',\n    po_number: 'PO-2026-4401',\n    sku: 'CBL-3C-25',\n    qty_billed: 35,\n    unit_price: 875000,\n    amount: 30625000,\n    currency: 'IDR',\n    payment_terms: '2/10 NET 30',\n    expected: 'exception OVER_CONSUMPTION - the first invoice in this same batch already took 10 of the 40 rolls received on GRN-88101, so only 30 are still open. Quantity, PO and price all check out on their own'\n  },\n  {\n    vendor: 'PT Kemasan Prima',\n    invoice_number: 'INV-' + tag + '-11',\n    invoice_date: '2026-09-10',\n    po_number: 'PO-2026-4403',\n    sku: 'BOX-A4-DBL',\n    qty_billed: 1000,\n    unit_price: 9900,\n    amount: 9900000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception PRICE_VARIANCE - 4600 of this PO are still open so the draw-down is fine, but 9900 per box is 5.3 percent over the agreed 9400'\n  }\n];\n\nreturn fixtures.map(function (r) {\n  return { json: Object.assign({ source: 'demo_fixture' }, r) };\n});"
+      },
       "id": "a5529000-ad25-48fe-a0cd-753bba0cc22d",
       "name": "Collect Invoice Batch",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         896,
-        192
+        352
       ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "let supplied = null;\ntry {\n  const hook = $('AP Invoice Webhook').first().json;\n  const body = hook && hook.body ? hook.body : hook;\n  if (body && Array.isArray(body.invoices) && body.invoices.length) supplied = body.invoices;\n} catch (e) {\n  supplied = null;\n}\n\nif (supplied) {\n  return supplied.map(function (r) {\n    return { json: Object.assign({ source: 'webhook' }, r) };\n  });\n}\n\nconst run = String($execution.id || 'DEMO');\nconst tag = 'R' + run;\n\nconst fixtures = [\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-01',\n    invoice_date: '2026-09-09',\n    po_number: 'PO-2026-4401',\n    sku: 'CBL-3C-25',\n    qty_billed: 10,\n    unit_price: 876000,\n    amount: 8760000,\n    currency: 'IDR',\n    payment_terms: '2/10 NET 30',\n    expected: 'auto_approve - price 0.11 percent over PO, inside the 2 percent tolerance, and under the touchless ceiling'\n  },\n  {\n    vendor: 'Mitra Logistik Nusantara',\n    invoice_number: 'INV-' + tag + '-02',\n    invoice_date: '2026-09-06',\n    po_number: 'PO-2026-4402',\n    sku: 'FRT-JKT-SBY',\n    qty_billed: 12,\n    unit_price: 4200000,\n    amount: 50400000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'needs_approval manager - clean match but over the touchless ceiling'\n  },\n  {\n    vendor: 'PT Kemasan Prima',\n    invoice_number: 'INV-' + tag + '-03',\n    invoice_date: '2026-09-07',\n    po_number: 'PO-2026-4403',\n    sku: 'BOX-A4-DBL',\n    qty_billed: 5000,\n    unit_price: 9400,\n    amount: 47000000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception QTY_MISMATCH - vendor billed the full order, warehouse only booked in 4600'\n  },\n  {\n    vendor: 'Sinar Baja Elektrik',\n    invoice_number: 'INV-' + tag + '-04',\n    invoice_date: '2026-09-10',\n    po_number: 'PO-2026-4405',\n    sku: 'PNL-MCB-63',\n    qty_billed: 8,\n    unit_price: 2750000,\n    amount: 22000000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception NO_RECEIPT - invoiced before the goods were booked in'\n  },\n  {\n    vendor: 'Berkah Jaya Mandiri',\n    invoice_number: 'INV-' + tag + '-05',\n    invoice_date: '2026-09-08',\n    po_number: 'PO-2026-9999',\n    sku: 'MISC-01',\n    qty_billed: 4,\n    unit_price: 1500000,\n    amount: 6000000,\n    currency: 'IDR',\n    payment_terms: 'NET 14',\n    expected: 'exception PO_NOT_FOUND - no such purchase order'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: '',\n    invoice_date: '',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 100,\n    unit_price: 31500,\n    amount: 0,\n    currency: 'USD',\n    payment_terms: 'NET 30',\n    expected: 'exception VALIDATION - unreadable scan, four separate field problems'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-8899',\n    invoice_date: '2026-08-27',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 600,\n    unit_price: 31500,\n    amount: 18900000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception DUPLICATE - already paid in the August close, vendor re-sent it'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-' + tag + '-08',\n    invoice_date: '2026-09-11',\n    po_number: 'PO-2026-4404',\n    sku: 'BRG-6204',\n    qty_billed: 600,\n    unit_price: 33600,\n    amount: 20160000,\n    currency: 'IDR',\n    payment_terms: 'NET 30',\n    expected: 'exception PRICE_VARIANCE - billed 6.67 percent above the agreed PO price'\n  },\n  {\n    vendor: 'Cahaya Teknik Presisi',\n    invoice_number: 'INV-' + tag + '-09',\n    invoice_date: '2026-09-12',\n    po_number: 'PO-2026-4406',\n    sku: 'CNC-VMC-850',\n    qty_billed: 1,\n    unit_price: 1450000000,\n    amount: 1450000000,\n    currency: 'IDR',\n    payment_terms: 'NET 45',\n    expected: 'needs_approval director - clean match, capex above the manager ceiling'\n  }\n];\n\nreturn fixtures.map(function (r) {\n  return { json: Object.assign({ source: 'demo_fixture' }, r) };\n});"
-      },
-      "notes": "Uses the posted invoices from the webhook when there are any, otherwise emits the nine demo invoices that exercise every branch."
+      "notes": "Uses the posted invoices from the webhook when there are any, otherwise emits the eleven demo invoices that exercise every branch, including two that try to bill a goods receipt twice."
     },
     {
+      "parameters": {
+        "jsCode": "const TOLERANCE_PCT = 0.02;\nconst TOLERANCE_FLOOR_IDR = 50000;\nconst AUTO_APPROVE_MAX = 10000000;\nconst MANAGER_MAX = 100000000;\nconst MINUTES_PER_MANUAL_INVOICE = 7;\n\nfunction toNum(v) {\n  if (v === null || v === undefined || v === '') return 0;\n  const n = Number(String(v).split(',').join(''));\n  return isNaN(n) ? 0 : n;\n}\nfunction makeKey(vendor, invoiceNumber) {\n  return (String(vendor || '').trim() + '|' + String(invoiceNumber || '').trim()).toUpperCase();\n}\nfunction addDays(iso, days) {\n  const t = Date.parse(iso);\n  if (isNaN(t)) return '';\n  return new Date(t + days * 86400000).toISOString().slice(0, 10);\n}\nfunction parseTerms(raw) {\n  const terms = String(raw || 'NET 30').toUpperCase().trim();\n  const netIdx = terms.indexOf('NET');\n  const slash = terms.indexOf('/');\n  let netDays = 30;\n  let discPct = 0;\n  let discDays = 0;\n  if (netIdx >= 0) {\n    const n = parseInt(terms.slice(netIdx + 3).trim(), 10);\n    if (!isNaN(n)) netDays = n;\n  }\n  if (slash > 0 && netIdx > slash) {\n    const parts = terms.slice(0, netIdx).trim().split('/');\n    const p = parseFloat(parts[0]);\n    const d = parseInt(parts[1], 10);\n    if (!isNaN(p)) discPct = p / 100;\n    if (!isNaN(d)) discDays = d;\n  }\n  return { netDays: netDays, discPct: discPct, discDays: discDays, label: terms };\n}\n\nconst poRows = $('Load Purchase Orders').all();\nconst grnRows = $('Load Goods Receipts').all();\nconst ledgerRows = $('Load Posted Invoice Ledger').all();\n\nconst poByNumber = {};\nfor (const it of poRows) {\n  const r = it.json || {};\n  if (!r.po_number) continue;\n  poByNumber[String(r.po_number).trim().toUpperCase()] = r;\n}\n\nconst grnByPo = {};\nfor (const it of grnRows) {\n  const r = it.json || {};\n  if (!r.po_number) continue;\n  const k = String(r.po_number).trim().toUpperCase();\n  if (!grnByPo[k]) grnByPo[k] = [];\n  grnByPo[k].push(r);\n}\n\n// A goods receipt can only be billed once. Quantity already invoiced against a\n// PO is tracked from two places: rows the ledger already holds from earlier\n// runs, and invoices accepted earlier inside this same batch. An exception\n// consumes nothing, because nothing is paid against it.\nconst consumedPosted = {};\nconst consumedBatch = {};\nfunction consumedTotal(poKey) {\n  return (consumedPosted[poKey] || 0) + (consumedBatch[poKey] || 0);\n}\n\nconst ledgerByKey = {};\nfor (const it of ledgerRows) {\n  const r = it.json || {};\n  if (!r.invoice_key) continue;\n  if (String(r.decision || '') === 'exception') continue;\n  ledgerByKey[String(r.invoice_key).trim().toUpperCase()] = r;\n  const lpo = String(r.po_number || '').trim().toUpperCase();\n  if (lpo) consumedPosted[lpo] = (consumedPosted[lpo] || 0) + toNum(r.qty_billed);\n}\n\nconst seenThisBatch = {};\nconst out = [];\n\nfor (const it of $input.all()) {\n  const inv = it.json || {};\n  const vendor = String(inv.vendor || '').trim();\n  const invoiceNumber = String(inv.invoice_number || '').trim();\n  const poNumber = String(inv.po_number || '').trim().toUpperCase();\n  const sku = String(inv.sku || '').trim().toUpperCase();\n  const qtyBilled = toNum(inv.qty_billed);\n  const unitPriceBilled = toNum(inv.unit_price);\n  const rawAmount = toNum(inv.amount);\n  const amountIsSane = rawAmount > 0 && rawAmount < 1e15;\n  const amount = amountIsSane ? rawAmount : 0;\n  const currency = String(inv.currency || '').trim().toUpperCase();\n  const invoiceDate = String(inv.invoice_date || '').trim();\n  const invoiceKey = makeKey(vendor, invoiceNumber);\n\n  const problems = [];\n  if (!vendor) problems.push('vendor name is missing');\n  if (!invoiceNumber) problems.push('invoice number is missing');\n  if (!poNumber) problems.push('PO reference is missing');\n  if (!amountIsSane) problems.push(rawAmount > 0 ? 'invoice amount ' + rawAmount + ' is outside the plausible range and was not read' : 'invoice amount must be greater than zero');\n  if (currency !== 'IDR') problems.push('currency ' + (currency || '(blank)') + ' is not supported, AP posts IDR only');\n  if (!invoiceDate || isNaN(Date.parse(invoiceDate))) problems.push('invoice date is missing or unreadable');\n  if (amount > 0 && qtyBilled > 0 && unitPriceBilled > 0) {\n    const lineTotal = qtyBilled * unitPriceBilled;\n    if (Math.abs(lineTotal - amount) > 1) {\n      problems.push('invoice total ' + amount + ' does not equal quantity x unit price (' + lineTotal + ')');\n    }\n  }\n\n  const po = poByNumber[poNumber] || null;\n  const grns = grnByPo[poNumber] || [];\n  const qtyReceived = grns.reduce(function (s, g) { return s + toNum(g.qty_received); }, 0);\n  const grnNumbers = grns.map(function (g) { return String(g.grn_number || ''); }).join(', ');\n  const grnCondition = grns.length ? String(grns[0].condition || '') : '';\n  const poUnitPrice = po ? toNum(po.unit_price) : 0;\n  const qtyOrdered = po ? toNum(po.qty_ordered) : 0;\n  const expectedTotal = po ? qtyBilled * poUnitPrice : 0;\n  const varianceValue = po ? amount - expectedTotal : 0;\n  const varianceAbs = varianceValue < 0 ? -varianceValue : varianceValue;\n  const variancePct = expectedTotal > 0 ? varianceValue / expectedTotal : 0;\n  const pctAllowance = expectedTotal * TOLERANCE_PCT;\n  const allowance = pctAllowance > TOLERANCE_FLOOR_IDR ? pctAllowance : TOLERANCE_FLOOR_IDR;\n\n  // The receipt is drawn down rather than re-read in full for every invoice.\n  const qtyMatchable = qtyOrdered < qtyReceived ? qtyOrdered : qtyReceived;\n  const qtyPostedBefore = consumedPosted[poNumber] || 0;\n  const qtyBatchBefore = consumedBatch[poNumber] || 0;\n  const qtyAlreadyInvoiced = consumedTotal(poNumber);\n  const qtyOpen = qtyMatchable - qtyAlreadyInvoiced;\n\n  let decision = '';\n  let routeTo = '';\n  let exceptionCode = '';\n  let reason = '';\n\n  if (problems.length) {\n    decision = 'exception';\n    routeTo = 'ap_clerk';\n    exceptionCode = 'VALIDATION';\n    reason = 'Rejected before matching: ' + problems.join('; ') + '.';\n  } else if (ledgerByKey[invoiceKey]) {\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'DUPLICATE';\n    reason = 'Already accepted on ' + String(ledgerByKey[invoiceKey].processed_at || 'an earlier run') + ' as ' + String(ledgerByKey[invoiceKey].decision || 'posted') + '. Paying it again would double-pay the vendor.';\n  } else if (seenThisBatch[invoiceKey]) {\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'DUPLICATE';\n    reason = 'The same vendor and invoice number appears more than once inside this batch.';\n  } else if (!po) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'PO_NOT_FOUND';\n    reason = 'No purchase order ' + poNumber + ' exists. Either the vendor quoted the wrong PO, or this was bought without one.';\n  } else if (!grns.length) {\n    decision = 'exception';\n    routeTo = 'warehouse';\n    exceptionCode = 'NO_RECEIPT';\n    reason = 'Nothing has been booked in against ' + poNumber + ' yet. Goods receipt must be posted before this invoice can be paid.';\n  } else if (qtyBilled > qtyReceived) {\n    decision = 'exception';\n    routeTo = 'warehouse';\n    exceptionCode = 'QTY_MISMATCH';\n    reason = 'Billed ' + qtyBilled + ' but only ' + qtyReceived + ' received on ' + grnNumbers + (grnCondition ? ' (' + grnCondition + ')' : '') + '. Short by ' + (qtyBilled - qtyReceived) + '.';\n  } else if (qtyBilled > qtyOrdered) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'OVER_PO';\n    reason = 'Billed ' + qtyBilled + ' against a PO for ' + qtyOrdered + '. The PO needs a change order before this can be paid.';\n  } else if (sku && po.sku && sku !== String(po.sku).trim().toUpperCase()) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'SKU_MISMATCH';\n    reason = 'Invoice bills ' + sku + ' but ' + poNumber + ' is for ' + String(po.sku) + '.';\n  } else if (qtyBilled > qtyOpen) {\n    // Checked before price. A receipt billed twice is a double payment, which is\n    // a worse finding than a price procurement can still renegotiate.\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'OVER_CONSUMPTION';\n    reason = 'Billed ' + qtyBilled + ' but only ' + (qtyOpen > 0 ? qtyOpen : 0) + ' of ' + poNumber + ' is still open. ' + qtyMatchable + ' matchable (ordered ' + qtyOrdered + ', received ' + qtyReceived + ' on ' + grnNumbers + ') less ' + qtyAlreadyInvoiced + ' already invoiced (' + qtyPostedBefore + ' on the posted ledger, ' + qtyBatchBefore + ' earlier in this batch). Paying this would bill the same goods receipt twice.';\n  } else if (varianceAbs > allowance) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'PRICE_VARIANCE';\n    reason = 'Billed ' + amount + ' against an expected ' + expectedTotal + ' at the PO price of ' + poUnitPrice + ' per unit. Over tolerance by ' + Math.round(varianceAbs - allowance) + '.';\n  } else if (amount <= AUTO_APPROVE_MAX) {\n    decision = 'auto_approve';\n    routeTo = 'accounting_auto';\n    reason = 'Three-way match clean and under the touchless ceiling of ' + AUTO_APPROVE_MAX + '. Posted without human review.';\n  } else if (amount <= MANAGER_MAX) {\n    decision = 'needs_approval';\n    routeTo = 'manager';\n    reason = 'Three-way match clean. Above the touchless ceiling, so a manager signs off before posting.';\n  } else {\n    decision = 'needs_approval';\n    routeTo = 'director';\n    reason = 'Three-way match clean but above ' + MANAGER_MAX + '. Director approval required.';\n  }\n\n  /* Satu faktur bisa melanggar lebih dari satu aturan. exception_code tetap\n     yang pertama menurut prioritas, karena itu yang menentukan pemiliknya,\n     tapi menyembunyikan sisanya berarti procurement tidak pernah tahu bahwa\n     harganya juga salah. Semua yang gagal dicatat, bukan cuma yang pertama. */\n  const allCodes = [];\n  if (problems.length) allCodes.push(\"VALIDATION\");\n  if (ledgerByKey[invoiceKey] || seenThisBatch[invoiceKey]) allCodes.push(\"DUPLICATE\");\n  if (!po) allCodes.push(\"PO_NOT_FOUND\");\n  if (po && !grns.length) allCodes.push(\"NO_RECEIPT\");\n  if (po && grns.length && qtyBilled > qtyReceived) allCodes.push(\"QTY_MISMATCH\");\n  if (po && qtyBilled > qtyOrdered) allCodes.push(\"OVER_PO\");\n  if (po && sku && po.sku && sku !== String(po.sku).trim().toUpperCase()) allCodes.push(\"SKU_MISMATCH\");\n  /* Hanya kalau memang ada yang sudah ditagihkan sebelumnya. Bila belum,\n     OVER_CONSUMPTION persis sama artinya dengan QTY_MISMATCH dan menyebut\n     keduanya cuma bising. */\n  if (po && grns.length && qtyAlreadyInvoiced > 0 && qtyBilled > qtyOpen) allCodes.push(\"OVER_CONSUMPTION\");\n  if (po && varianceAbs > allowance) allCodes.push(\"PRICE_VARIANCE\");\n  /* VALIDATION berarti faktur ditolak SEBELUM dicocokkan, jadi angka kuantitas\n     dan nilainya memang sampah - melaporkan kegagalan pencocokan di atasnya\n     hanya menyesatkan pemiliknya. */\n  const secondaryCodes = exceptionCode === \"VALIDATION\" ? []\n    : allCodes.filter(function (c) { return c !== exceptionCode; });\n  const secondaryNote = secondaryCodes.length\n    ? \"Also failing: \" + secondaryCodes.join(\", \") + \". Routed on \" + exceptionCode + \", but these need an owner too.\"\n    : \"\";\n  seenThisBatch[invoiceKey] = true;\n\n  // Only an invoice that is actually going to be paid draws the receipt down.\n  if (decision !== 'exception' && poNumber) {\n    consumedBatch[poNumber] = (consumedBatch[poNumber] || 0) + qtyBilled;\n  }\n\n  const ledgerKey = decision === 'exception' ? invoiceKey + ' #' + exceptionCode : invoiceKey;\n\n  const terms = parseTerms(inv.payment_terms);\n  const dueDate = invoiceDate && !isNaN(Date.parse(invoiceDate)) ? addDays(invoiceDate, terms.netDays) : '';\n  const discountDate = terms.discPct > 0 && dueDate ? addDays(invoiceDate, terms.discDays) : '';\n  const discountAmount = terms.discPct > 0 && decision !== 'exception' ? Math.round(amount * terms.discPct) : 0;\n  const payable = decision === 'exception' ? 0 : amount - discountAmount;\n\n  // A needs_approval invoice still costs a human their attention, so it is not\n  // touchless and no clerk minutes are claimed for it.\n  const humanTouches = decision === 'auto_approve' ? 0 : 1;\n\n  out.push({\n    json: {\n      invoice_key: invoiceKey,\n      ledger_key: ledgerKey,\n      vendor: vendor,\n      invoice_number: invoiceNumber,\n      invoice_date: invoiceDate,\n      po_number: poNumber,\n      sku: sku,\n      qty_billed: qtyBilled,\n      unit_price: unitPriceBilled,\n      amount: amount,\n      currency: currency,\n      decision: decision,\n      route_to: routeTo,\n      exception_code: exceptionCode,\n      exception_codes: decision === \"exception\" ? allCodes : [],\n      secondary_exception_codes: decision === \"exception\" ? secondaryCodes : [],\n      secondary_note: decision === \"exception\" ? secondaryNote : \"\",\n      note: reason,\n      po_found: po ? true : false,\n      po_vendor: po ? String(po.vendor || '') : '',\n      po_qty_ordered: qtyOrdered,\n      po_unit_price: poUnitPrice,\n      po_buyer: po ? String(po.buyer || '') : '',\n      grn_numbers: grnNumbers,\n      grn_qty_received: qtyReceived,\n      grn_condition: grnCondition,\n      qty_matchable: qtyMatchable,\n      qty_already_invoiced: qtyAlreadyInvoiced,\n      qty_already_invoiced_posted: qtyPostedBefore,\n      qty_already_invoiced_this_batch: qtyBatchBefore,\n      qty_open: qtyOpen,\n      expected_total: expectedTotal,\n      variance_value: varianceValue,\n      variance_pct: Math.round(variancePct * 10000) / 100,\n      tolerance_allowance: Math.round(allowance),\n      payment_terms: terms.label,\n      due_date: dueDate,\n      discount_date: discountDate,\n      discount_amount: discountAmount,\n      payable_amount: payable,\n      validation_problems: problems,\n      human_touches: humanTouches,\n      minutes_saved: humanTouches === 0 ? MINUTES_PER_MANUAL_INVOICE : 0,\n      processed_at: new Date().toISOString(),\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nreturn out;\n"
+      },
       "id": "1a4322aa-78d2-4643-b239-dde7a8c27657",
       "name": "Three-Way Match and Payment Engine",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1120,
-        192
+        352
       ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "const TOLERANCE_PCT = 0.02;\nconst TOLERANCE_FLOOR_IDR = 50000;\nconst AUTO_APPROVE_MAX = 10000000;\nconst MANAGER_MAX = 100000000;\nconst MINUTES_PER_MANUAL_INVOICE = 7;\n\nfunction toNum(v) {\n  if (v === null || v === undefined || v === '') return 0;\n  const n = Number(String(v).split(',').join(''));\n  return isNaN(n) ? 0 : n;\n}\nfunction makeKey(vendor, invoiceNumber) {\n  return (String(vendor || '').trim() + '|' + String(invoiceNumber || '').trim()).toUpperCase();\n}\nfunction addDays(iso, days) {\n  const t = Date.parse(iso);\n  if (isNaN(t)) return '';\n  return new Date(t + days * 86400000).toISOString().slice(0, 10);\n}\nfunction parseTerms(raw) {\n  const terms = String(raw || 'NET 30').toUpperCase().trim();\n  const netIdx = terms.indexOf('NET');\n  const slash = terms.indexOf('/');\n  let netDays = 30;\n  let discPct = 0;\n  let discDays = 0;\n  if (netIdx >= 0) {\n    const n = parseInt(terms.slice(netIdx + 3).trim(), 10);\n    if (!isNaN(n)) netDays = n;\n  }\n  if (slash > 0 && netIdx > slash) {\n    const parts = terms.slice(0, netIdx).trim().split('/');\n    const p = parseFloat(parts[0]);\n    const d = parseInt(parts[1], 10);\n    if (!isNaN(p)) discPct = p / 100;\n    if (!isNaN(d)) discDays = d;\n  }\n  return { netDays: netDays, discPct: discPct, discDays: discDays, label: terms };\n}\n\nconst poRows = $('Load Purchase Orders').all();\nconst grnRows = $('Load Goods Receipts').all();\nconst ledgerRows = $('Load Posted Invoice Ledger').all();\n\nconst poByNumber = {};\nfor (const it of poRows) {\n  const r = it.json || {};\n  if (!r.po_number) continue;\n  poByNumber[String(r.po_number).trim().toUpperCase()] = r;\n}\n\nconst grnByPo = {};\nfor (const it of grnRows) {\n  const r = it.json || {};\n  if (!r.po_number) continue;\n  const k = String(r.po_number).trim().toUpperCase();\n  if (!grnByPo[k]) grnByPo[k] = [];\n  grnByPo[k].push(r);\n}\n\nconst ledgerByKey = {};\nfor (const it of ledgerRows) {\n  const r = it.json || {};\n  if (!r.invoice_key) continue;\n  if (String(r.decision || '') === 'exception') continue;\n  ledgerByKey[String(r.invoice_key).trim().toUpperCase()] = r;\n}\n\nconst seenThisBatch = {};\nconst out = [];\n\nfor (const it of $input.all()) {\n  const inv = it.json || {};\n  const vendor = String(inv.vendor || '').trim();\n  const invoiceNumber = String(inv.invoice_number || '').trim();\n  const poNumber = String(inv.po_number || '').trim().toUpperCase();\n  const sku = String(inv.sku || '').trim().toUpperCase();\n  const qtyBilled = toNum(inv.qty_billed);\n  const unitPriceBilled = toNum(inv.unit_price);\n  const rawAmount = toNum(inv.amount);\n  const amountIsSane = rawAmount > 0 && rawAmount < 1e15;\n  const amount = amountIsSane ? rawAmount : 0;\n  const currency = String(inv.currency || '').trim().toUpperCase();\n  const invoiceDate = String(inv.invoice_date || '').trim();\n  const invoiceKey = makeKey(vendor, invoiceNumber);\n\n  const problems = [];\n  if (!vendor) problems.push('vendor name is missing');\n  if (!invoiceNumber) problems.push('invoice number is missing');\n  if (!poNumber) problems.push('PO reference is missing');\n  if (!amountIsSane) problems.push(rawAmount > 0 ? 'invoice amount ' + rawAmount + ' is outside the plausible range and was not read' : 'invoice amount must be greater than zero');\n  if (currency !== 'IDR') problems.push('currency ' + (currency || '(blank)') + ' is not supported, AP posts IDR only');\n  if (!invoiceDate || isNaN(Date.parse(invoiceDate))) problems.push('invoice date is missing or unreadable');\n  if (amount > 0 && qtyBilled > 0 && unitPriceBilled > 0) {\n    const lineTotal = qtyBilled * unitPriceBilled;\n    if (Math.abs(lineTotal - amount) > 1) {\n      problems.push('invoice total ' + amount + ' does not equal quantity x unit price (' + lineTotal + ')');\n    }\n  }\n\n  const po = poByNumber[poNumber] || null;\n  const grns = grnByPo[poNumber] || [];\n  const qtyReceived = grns.reduce(function (s, g) { return s + toNum(g.qty_received); }, 0);\n  const grnNumbers = grns.map(function (g) { return String(g.grn_number || ''); }).join(', ');\n  const grnCondition = grns.length ? String(grns[0].condition || '') : '';\n  const poUnitPrice = po ? toNum(po.unit_price) : 0;\n  const qtyOrdered = po ? toNum(po.qty_ordered) : 0;\n  const expectedTotal = po ? qtyBilled * poUnitPrice : 0;\n  const varianceValue = po ? amount - expectedTotal : 0;\n  const varianceAbs = varianceValue < 0 ? -varianceValue : varianceValue;\n  const variancePct = expectedTotal > 0 ? varianceValue / expectedTotal : 0;\n  const pctAllowance = expectedTotal * TOLERANCE_PCT;\n  const allowance = pctAllowance > TOLERANCE_FLOOR_IDR ? pctAllowance : TOLERANCE_FLOOR_IDR;\n\n  let decision = '';\n  let routeTo = '';\n  let exceptionCode = '';\n  let reason = '';\n\n  if (problems.length) {\n    decision = 'exception';\n    routeTo = 'ap_clerk';\n    exceptionCode = 'VALIDATION';\n    reason = 'Rejected before matching: ' + problems.join('; ') + '.';\n  } else if (ledgerByKey[invoiceKey]) {\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'DUPLICATE';\n    reason = 'Already accepted on ' + String(ledgerByKey[invoiceKey].processed_at || 'an earlier run') + ' as ' + String(ledgerByKey[invoiceKey].decision || 'posted') + '. Paying it again would double-pay the vendor.';\n  } else if (seenThisBatch[invoiceKey]) {\n    decision = 'exception';\n    routeTo = 'ap_supervisor';\n    exceptionCode = 'DUPLICATE';\n    reason = 'The same vendor and invoice number appears more than once inside this batch.';\n  } else if (!po) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'PO_NOT_FOUND';\n    reason = 'No purchase order ' + poNumber + ' exists. Either the vendor quoted the wrong PO, or this was bought without one.';\n  } else if (!grns.length) {\n    decision = 'exception';\n    routeTo = 'warehouse';\n    exceptionCode = 'NO_RECEIPT';\n    reason = 'Nothing has been booked in against ' + poNumber + ' yet. Goods receipt must be posted before this invoice can be paid.';\n  } else if (qtyBilled > qtyReceived) {\n    decision = 'exception';\n    routeTo = 'warehouse';\n    exceptionCode = 'QTY_MISMATCH';\n    reason = 'Billed ' + qtyBilled + ' but only ' + qtyReceived + ' received on ' + grnNumbers + (grnCondition ? ' (' + grnCondition + ')' : '') + '. Short by ' + (qtyBilled - qtyReceived) + '.';\n  } else if (qtyBilled > qtyOrdered) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'OVER_PO';\n    reason = 'Billed ' + qtyBilled + ' against a PO for ' + qtyOrdered + '. The PO needs a change order before this can be paid.';\n  } else if (sku && po.sku && sku !== String(po.sku).trim().toUpperCase()) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'SKU_MISMATCH';\n    reason = 'Invoice bills ' + sku + ' but ' + poNumber + ' is for ' + String(po.sku) + '.';\n  } else if (varianceAbs > allowance) {\n    decision = 'exception';\n    routeTo = 'procurement';\n    exceptionCode = 'PRICE_VARIANCE';\n    reason = 'Billed ' + amount + ' against an expected ' + expectedTotal + ' at the PO price of ' + poUnitPrice + ' per unit. Over tolerance by ' + Math.round(varianceAbs - allowance) + '.';\n  } else if (amount <= AUTO_APPROVE_MAX) {\n    decision = 'auto_approve';\n    routeTo = 'accounting_auto';\n    reason = 'Three-way match clean and under the touchless ceiling of ' + AUTO_APPROVE_MAX + '. Posted without human review.';\n  } else if (amount <= MANAGER_MAX) {\n    decision = 'needs_approval';\n    routeTo = 'manager';\n    reason = 'Three-way match clean. Above the touchless ceiling, so a manager signs off before posting.';\n  } else {\n    decision = 'needs_approval';\n    routeTo = 'director';\n    reason = 'Three-way match clean but above ' + MANAGER_MAX + '. Director approval required.';\n  }\n\n  seenThisBatch[invoiceKey] = true;\n\n  const ledgerKey = decision === 'exception' ? invoiceKey + ' #' + exceptionCode : invoiceKey;\n\n  const terms = parseTerms(inv.payment_terms);\n  const dueDate = invoiceDate && !isNaN(Date.parse(invoiceDate)) ? addDays(invoiceDate, terms.netDays) : '';\n  const discountDate = terms.discPct > 0 && dueDate ? addDays(invoiceDate, terms.discDays) : '';\n  const discountAmount = terms.discPct > 0 && decision !== 'exception' ? Math.round(amount * terms.discPct) : 0;\n  const payable = decision === 'exception' ? 0 : amount - discountAmount;\n\n  out.push({\n    json: {\n      invoice_key: invoiceKey,\n      ledger_key: ledgerKey,\n      vendor: vendor,\n      invoice_number: invoiceNumber,\n      invoice_date: invoiceDate,\n      po_number: poNumber,\n      sku: sku,\n      qty_billed: qtyBilled,\n      unit_price: unitPriceBilled,\n      amount: amount,\n      currency: currency,\n      decision: decision,\n      route_to: routeTo,\n      exception_code: exceptionCode,\n      note: reason,\n      po_found: po ? true : false,\n      po_vendor: po ? String(po.vendor || '') : '',\n      po_qty_ordered: qtyOrdered,\n      po_unit_price: poUnitPrice,\n      po_buyer: po ? String(po.buyer || '') : '',\n      grn_numbers: grnNumbers,\n      grn_qty_received: qtyReceived,\n      grn_condition: grnCondition,\n      expected_total: expectedTotal,\n      variance_value: varianceValue,\n      variance_pct: Math.round(variancePct * 10000) / 100,\n      tolerance_allowance: Math.round(allowance),\n      payment_terms: terms.label,\n      due_date: dueDate,\n      discount_date: discountDate,\n      discount_amount: discountAmount,\n      payable_amount: payable,\n      validation_problems: problems,\n      minutes_saved: decision === 'exception' ? 0 : MINUTES_PER_MANUAL_INVOICE,\n      processed_at: new Date().toISOString(),\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nreturn out;"
-      },
-      "notes": "Every rule that decides whether money leaves the company lives in this one node, in the order it is applied."
+      "notes": "Every rule that decides whether money leaves the company lives in this one node, in the order it is applied. The goods receipt is drawn down as it is billed, so quantity already invoiced against a PO — posted or earlier in this batch — can never be billed again."
     },
     {
-      "id": "b730d313-c180-4a4f-b967-f685a6e52723",
-      "name": "Route by Decision",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3.4,
-      "position": [
-        1344,
-        160
-      ],
       "parameters": {
         "rules": {
           "values": [
             {
-              "outputKey": "auto_approve",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -179,7 +162,6 @@
               }
             },
             {
-              "outputKey": "needs_approval",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -202,7 +184,6 @@
               }
             },
             {
-              "outputKey": "exception",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -230,20 +211,18 @@
           "fallbackOutput": "extra",
           "renameFallbackOutput": "Unclassified"
         }
-      }
-    },
-    {
-      "id": "21661972-0801-45ee-b4f0-12a6f6df0201",
-      "name": "Draft Journal Entry",
-      "type": "n8n-nodes-base.set",
+      },
+      "id": "b730d313-c180-4a4f-b967-f685a6e52723",
+      "name": "Route by Decision",
+      "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1568,
-        0
-      ],
+        1344,
+        320
+      ]
+    },
+    {
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -283,21 +262,22 @@
               "type": "number"
             }
           ]
-        }
+        },
+        "includeOtherFields": true,
+        "options": {}
       },
+      "id": "21661972-0801-45ee-b4f0-12a6f6df0201",
+      "name": "Draft Journal Entry",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        192
+      ],
       "notes": "No human sees these. They post straight through and only appear in the run summary."
     },
     {
-      "id": "d02e53af-037e-4177-aa77-5dbc815d7c4a",
-      "name": "Write to Invoice Ledger",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        2016,
-        192
-      ],
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
@@ -310,7 +290,6 @@
           "conditions": [
             {
               "keyName": "invoice_key",
-              "condition": "eq",
               "keyValue": "={{ $json.ledger_key }}"
             }
           ]
@@ -332,7 +311,8 @@
             "exception_code": "={{ $json.exception_code }}",
             "note": "={{ $json.note }}",
             "processed_at": "={{ $json.processed_at }}",
-            "execution_id": "={{ $json.execution_id }}"
+            "execution_id": "={{ $json.execution_id }}",
+            "qty_billed": "={{ $json.qty_billed }}"
           },
           "schema": [
             {
@@ -442,26 +422,32 @@
               "display": true,
               "type": "string",
               "canBeUsedToMatch": true
+            },
+            {
+              "id": "qty_billed",
+              "displayName": "qty_billed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
             }
           ]
         },
         "options": {}
       },
-      "notes": "Upsert on invoice_key. This row is what makes the same invoice a duplicate the next time it arrives.",
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "24310bb9-052f-4349-9100-c25a019e859d",
-      "name": "Draft Approval Request",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "id": "d02e53af-037e-4177-aa77-5dbc815d7c4a",
+      "name": "Write to Invoice Ledger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
       "position": [
-        1568,
+        2016,
         192
       ],
+      "notes": "Upsert on invoice_key. This row is what makes the same invoice a duplicate the next time it arrives, and qty_billed is what makes the goods receipt it drew on smaller for every run after this one."
+    },
+    {
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -485,7 +471,7 @@
             {
               "id": "ap-msg",
               "name": "approval_message",
-              "value": "=*Invoice needs your approval — {{ $json.route_to }}*\n{{ $json.vendor }} · {{ $json.invoice_number }} · {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }}\nPO {{ $json.po_number }} matched against GRN {{ $json.grn_numbers }} — quantity and price both inside tolerance.\nBuyer {{ $json.po_buyer }} raised the PO. Pay by {{ $json.due_date }}.\nApprove to post, or send back with a reason.",
+              "value": "=*Invoice needs your approval — {{ $json.route_to }}*\n{{ $json.vendor }} · {{ $json.invoice_number }} · {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }}\nPO {{ $json.po_number }} matched against GRN {{ $json.grn_numbers }} — quantity and price both inside tolerance, and {{ $json.qty_billed }} of the {{ $json.qty_open }} still open on that receipt.\nBuyer {{ $json.po_buyer }} raised the PO. Pay by {{ $json.due_date }}.\nPlease answer within {{ $json.route_to === \"director\" ? 48 : 24 }} hours — that is the SLA on this one. Approve to post, or send back with a reason.",
               "type": "string"
             },
             {
@@ -501,22 +487,22 @@
               "type": "number"
             }
           ]
-        }
+        },
+        "includeOtherFields": true,
+        "options": {}
       },
-      "notes": "One approval, one person, with the match evidence already attached. Nobody has to go and look anything up."
-    },
-    {
-      "id": "60dd1c6d-70c2-461b-9f4d-ffaff5e9a8b5",
-      "name": "Open Exception Ticket",
+      "id": "24310bb9-052f-4349-9100-c25a019e859d",
+      "name": "Draft Approval Request",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
         1568,
-        384
+        448
       ],
+      "notes": "One approval, one person, with the match evidence already attached. Nobody has to go and look anything up."
+    },
+    {
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -540,13 +526,13 @@
             {
               "id": "ex-prio",
               "name": "ticket_priority",
-              "value": "={{ $json.exception_code === \"DUPLICATE\" ? \"high\" : ($json.amount > 25000000 ? \"high\" : \"normal\") }}",
+              "value": "={{ $json.exception_code === \"DUPLICATE\" || $json.exception_code === \"OVER_CONSUMPTION\" ? \"high\" : ($json.amount > 25000000 ? \"high\" : \"normal\") }}",
               "type": "string"
             },
             {
               "id": "ex-msg",
               "name": "ticket_message",
-              "value": "=[{{ $json.exception_code }}] {{ $json.vendor }} — {{ $json.invoice_number || \"(no invoice number)\" }}\nAmount {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }} against {{ $json.po_number }}\nWhy it stopped: {{ $json.note }}\nOwner: {{ $json.route_to }}. Nothing is paid until this is cleared.",
+              "value": "=[{{ $json.exception_code }}] {{ $json.vendor }} — {{ $json.invoice_number || \"(no invoice number)\" }}\nTicket EXC-{{ $json.execution_id }}-{{ $itemIndex + 1 }} · priority {{ $json.exception_code === \"DUPLICATE\" || $json.exception_code === \"OVER_CONSUMPTION\" ? \"high\" : ($json.amount > 25000000 ? \"high\" : \"normal\") }} · owner {{ $json.route_to }}\nAmount {{ $json.currency }} {{ $json.amount.toLocaleString(\"id-ID\") }} against {{ $json.po_number }}\nWhy it stopped: {{ $json.note }}\nNothing is paid until this is cleared.{{ $json.secondary_note ? \"\\n\" + $json.secondary_note : \"\" }}",
               "type": "string"
             },
             {
@@ -556,42 +542,24 @@
               "type": "number"
             }
           ]
-        }
+        },
+        "includeOtherFields": true,
+        "options": {}
       },
-      "notes": "The exception queue is the product. Every ticket says which team owns it and what specifically is wrong."
-    },
-    {
-      "id": "67bbaad9-02e5-4bd2-ba37-4d863f0d24af",
-      "name": "Ledger Write Failed",
+      "id": "60dd1c6d-70c2-461b-9f4d-ffaff5e9a8b5",
+      "name": "Open Exception Ticket",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2240,
-        384
+        1568,
+        784
       ],
-      "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
-        "assignments": {
-          "assignments": [
-            {
-              "id": "lf-alert",
-              "name": "alert",
-              "value": "=AP ledger write failed on run {{ $execution.id }}. The decision was made but not recorded, so this invoice will not be seen as a duplicate next run. Re-run before releasing payment.",
-              "type": "string"
-            },
-            {
-              "id": "lf-sev",
-              "name": "severity",
-              "value": "critical",
-              "type": "string"
-            }
-          ]
-        }
-      },
-      "notes": "A failed ledger write is the one failure that can cause a double payment, so it gets its own path instead of being swallowed."
+      "notes": "The exception queue is the product. Every ticket says which team owns it and what specifically is wrong."
     },
     {
+      "parameters": {
+        "jsCode": "const rows = $('Three-Way Match and Payment Engine').all().map(function (i) { return i.json; });\n\n// What actually came back from the ledger write, not what was sent to it.\n// The write node is wired straight in: a node-level failure now stops the run\n// outright instead of ending green, so there is no alert branch to merge. What\n// this still has to catch is the quieter fault - the node succeeding while a\n// row never lands - so a lost row is counted here rather than assumed away.\n//\n// A row is only counted as written when the data table handed it back with its\n// own row id and updatedAt stamp. Counting anything that is merely not flagged\n// would still report 11 of 11 when the whole node falls over and passes its\n// input straight through, which is exactly the lie this count exists to stop.\nconst outcomes = $input.all().map(function (i) { return i.json || {}; });\nfunction confirmedWritten(r) {\n  return !!r.invoice_key && !!r.updatedAt && r.id !== undefined && r.id !== null && !r.alert;\n}\nconst written = outcomes.filter(confirmedWritten);\nconst notWritten = outcomes.filter(function (r) { return !confirmedWritten(r); });\nconst writeOk = written.length;\nconst writeFailed = rows.length - writeOk;\nconst failedKeys = notWritten.map(function (r) {\n  return String(r.ledger_key || r.invoice_key || '(unknown invoice)');\n});\nconst neverReturned = writeFailed - notWritten.length;\nif (neverReturned > 0) {\n  failedKeys.push('(' + neverReturned + ' more the ledger node never reported back at all)');\n}\n\nlet journalEntries = [];\ntry {\n  journalEntries = $('Draft Journal Entry').all().map(function (i) {\n    const r = i.json || {};\n    return {\n      reference: String(r.posting_reference || ''),\n      invoice: String(r.invoice_number || ''),\n      vendor: String(r.vendor || ''),\n      amount: Number(r.amount) || 0,\n      entry: String(r.journal_entry || '')\n    };\n  });\n} catch (e) {\n  journalEntries = [];\n}\n\nconst total = rows.length;\nconst autoPosted = rows.filter(function (r) { return r.decision === 'auto_approve'; });\nconst pending = rows.filter(function (r) { return r.decision === 'needs_approval'; });\nconst held = rows.filter(function (r) { return r.decision === 'exception'; });\n\nfunction sum(list, field) {\n  return list.reduce(function (s, r) { return s + (Number(r[field]) || 0); }, 0);\n}\n\nconst byCode = {};\nfor (const r of held) {\n  const c = r.exception_code || 'UNKNOWN';\n  if (!byCode[c]) byCode[c] = { code: c, count: 0, value: 0, owners: {} };\n  byCode[c].count = byCode[c].count + 1;\n  byCode[c].value = byCode[c].value + (Number(r.amount) || 0);\n  byCode[c].owners[r.route_to || 'unassigned'] = true;\n}\nconst exceptionBreakdown = Object.keys(byCode).map(function (c) {\n  return {\n    code: c,\n    count: byCode[c].count,\n    value: byCode[c].value,\n    owner: Object.keys(byCode[c].owners).join(', ')\n  };\n}).sort(function (a, b) { return b.value - a.value; });\n\nconst byVendor = {};\nfor (const r of rows) {\n  const v = r.vendor || '(no vendor)';\n  if (!byVendor[v]) byVendor[v] = { vendor: v, invoices: 0, billed: 0, payable: 0, held: 0 };\n  byVendor[v].invoices = byVendor[v].invoices + 1;\n  byVendor[v].billed = byVendor[v].billed + (Number(r.amount) || 0);\n  byVendor[v].payable = byVendor[v].payable + (Number(r.payable_amount) || 0);\n  if (r.decision === 'exception') byVendor[v].held = byVendor[v].held + (Number(r.amount) || 0);\n}\nconst totalBilled = sum(rows, 'amount');\nconst vendorBreakdown = Object.keys(byVendor).map(function (v) {\n  const b = byVendor[v];\n  b.share_pct = totalBilled > 0 ? Math.round((b.billed / totalBilled) * 1000) / 10 : 0;\n  return b;\n}).sort(function (a, b) { return b.billed - a.billed; });\n\nconst discounts = rows.filter(function (r) { return (Number(r.discount_amount) || 0) > 0; })\n  .map(function (r) {\n    return {\n      invoice: r.invoice_number,\n      vendor: r.vendor,\n      save: Number(r.discount_amount) || 0,\n      pay_by: r.discount_date,\n      terms: r.payment_terms\n    };\n  }).sort(function (a, b) { return b.save - a.save; });\n\nconst schedule = rows.filter(function (r) { return r.decision !== 'exception' && r.due_date; })\n  .map(function (r) {\n    return {\n      pay_on: r.discount_date || r.due_date,\n      invoice: r.invoice_number,\n      vendor: r.vendor,\n      amount: Number(r.payable_amount) || 0,\n      approval: r.route_to\n    };\n  }).sort(function (a, b) { return a.pay_on < b.pay_on ? -1 : 1; });\n\nconst touchlessCount = rows.filter(function (r) { return (Number(r.human_touches) || 0) === 0; }).length;\nconst touchless = total ? Math.round((touchlessCount / total) * 1000) / 10 : 0;\nconst minutesSaved = sum(rows, 'minutes_saved');\nconst humanTouches = sum(rows, 'human_touches');\n\nconst overConsumption = held.filter(function (r) { return r.exception_code === 'OVER_CONSUMPTION'; });\n\nreturn [{\n  json: {\n    run_id: String($execution.id || 'manual'),\n    ran_at: new Date().toISOString(),\n    invoices_processed: total,\n    auto_posted_count: autoPosted.length,\n    auto_posted_value: sum(autoPosted, 'amount'),\n    awaiting_approval_count: pending.length,\n    awaiting_approval_value: sum(pending, 'amount'),\n    held_count: held.length,\n    held_value: sum(held, 'amount'),\n    total_billed: totalBilled,\n    total_payable: sum(rows, 'payable_amount'),\n    touchless_count: touchlessCount,\n    touchless_rate_pct: touchless,\n    human_touches_required: humanTouches,\n    clerk_minutes_saved: minutesSaved,\n    early_payment_savings: sum(rows, 'discount_amount'),\n    ledger_writes_attempted: total,\n    ledger_writes_ok: writeOk,\n    ledger_writes_failed: writeFailed > 0 ? writeFailed : 0,\n    ledger_write_failures: failedKeys,\n    over_consumption_count: overConsumption.length,\n    over_consumption_value: sum(overConsumption, 'amount'),\n    journal_entries: journalEntries,\n    discount_opportunities: discounts,\n    exception_breakdown: exceptionBreakdown,\n    vendor_breakdown: vendorBreakdown,\n    payment_schedule: schedule,\n    exceptions: held.map(function (r) {\n      return {\n        invoice: r.invoice_number || '(no number)',\n        vendor: r.vendor || '(no vendor)',\n        po: r.po_number,\n        amount: r.amount,\n        code: r.exception_code,\n        owner: r.route_to,\n        why: r.note,\n        also: Array.isArray(r.secondary_exception_codes) ? r.secondary_exception_codes : []\n      };\n    })\n  }\n}];\n"
+      },
       "id": "0865a218-3354-4e3e-aaa1-59b033b7790f",
       "name": "Build Run Summary",
       "type": "n8n-nodes-base.code",
@@ -600,26 +568,10 @@
         2240,
         96
       ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "const rows = $('Three-Way Match and Payment Engine').all().map(function (i) { return i.json; });\n\nconst total = rows.length;\nconst autoPosted = rows.filter(function (r) { return r.decision === 'auto_approve'; });\nconst pending = rows.filter(function (r) { return r.decision === 'needs_approval'; });\nconst held = rows.filter(function (r) { return r.decision === 'exception'; });\n\nfunction sum(list, field) {\n  return list.reduce(function (s, r) { return s + (Number(r[field]) || 0); }, 0);\n}\n\nconst byCode = {};\nfor (const r of held) {\n  const c = r.exception_code || 'UNKNOWN';\n  if (!byCode[c]) byCode[c] = { code: c, count: 0, value: 0, owners: {} };\n  byCode[c].count = byCode[c].count + 1;\n  byCode[c].value = byCode[c].value + (Number(r.amount) || 0);\n  byCode[c].owners[r.route_to || 'unassigned'] = true;\n}\nconst exceptionBreakdown = Object.keys(byCode).map(function (c) {\n  return {\n    code: c,\n    count: byCode[c].count,\n    value: byCode[c].value,\n    owner: Object.keys(byCode[c].owners).join(', ')\n  };\n}).sort(function (a, b) { return b.value - a.value; });\n\nconst byVendor = {};\nfor (const r of rows) {\n  const v = r.vendor || '(no vendor)';\n  if (!byVendor[v]) byVendor[v] = { vendor: v, invoices: 0, billed: 0, payable: 0, held: 0 };\n  byVendor[v].invoices = byVendor[v].invoices + 1;\n  byVendor[v].billed = byVendor[v].billed + (Number(r.amount) || 0);\n  byVendor[v].payable = byVendor[v].payable + (Number(r.payable_amount) || 0);\n  if (r.decision === 'exception') byVendor[v].held = byVendor[v].held + (Number(r.amount) || 0);\n}\nconst vendorBreakdown = Object.keys(byVendor).map(function (v) { return byVendor[v]; })\n  .sort(function (a, b) { return b.billed - a.billed; });\n\nconst discounts = rows.filter(function (r) { return (Number(r.discount_amount) || 0) > 0; })\n  .map(function (r) {\n    return {\n      invoice: r.invoice_number,\n      vendor: r.vendor,\n      save: Number(r.discount_amount) || 0,\n      pay_by: r.discount_date,\n      terms: r.payment_terms\n    };\n  }).sort(function (a, b) { return b.save - a.save; });\n\nconst schedule = rows.filter(function (r) { return r.decision !== 'exception' && r.due_date; })\n  .map(function (r) {\n    return {\n      pay_on: r.discount_date || r.due_date,\n      invoice: r.invoice_number,\n      vendor: r.vendor,\n      amount: Number(r.payable_amount) || 0,\n      approval: r.route_to\n    };\n  }).sort(function (a, b) { return a.pay_on < b.pay_on ? -1 : 1; });\n\nconst touchless = total ? Math.round((autoPosted.length / total) * 1000) / 10 : 0;\nconst minutesSaved = sum(rows, 'minutes_saved');\n\nreturn [{\n  json: {\n    run_id: String($execution.id || 'manual'),\n    ran_at: new Date().toISOString(),\n    invoices_processed: total,\n    auto_posted_count: autoPosted.length,\n    auto_posted_value: sum(autoPosted, 'amount'),\n    awaiting_approval_count: pending.length,\n    awaiting_approval_value: sum(pending, 'amount'),\n    held_count: held.length,\n    held_value: sum(held, 'amount'),\n    total_billed: sum(rows, 'amount'),\n    total_payable: sum(rows, 'payable_amount'),\n    touchless_rate_pct: touchless,\n    clerk_minutes_saved: minutesSaved,\n    early_payment_savings: sum(rows, 'discount_amount'),\n    discount_opportunities: discounts,\n    exception_breakdown: exceptionBreakdown,\n    vendor_breakdown: vendorBreakdown,\n    payment_schedule: schedule,\n    exceptions: held.map(function (r) {\n      return {\n        invoice: r.invoice_number || '(no number)',\n        vendor: r.vendor || '(no vendor)',\n        po: r.po_number,\n        amount: r.amount,\n        code: r.exception_code,\n        owner: r.route_to,\n        why: r.note\n      };\n    })\n  }\n}];"
-      },
-      "notes": "Reads the engine output directly, so the numbers are the decisions themselves rather than whatever survived the ledger write.",
-      "executeOnce": true
+      "notes": "Decisions come from the engine; the written-and-failed counts come from what the ledger write actually returned, so a lost row shows up as a lost row instead of being assumed written."
     },
     {
-      "id": "233cd9d3-a59a-4b1f-adb4-785c812193b4",
-      "name": "Format Run Report",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        2464,
-        96
-      ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -631,152 +583,147 @@
             {
               "id": "rp-body",
               "name": "report",
-              "value": "=*Accounts Payable — run {{ $json.run_id }}*\n{{ $json.invoices_processed }} invoices worth {{ $json.total_billed.toLocaleString(\"id-ID\") }} IDR came in.\n\nPosted with no human touch: {{ $json.auto_posted_count }} ({{ $json.auto_posted_value.toLocaleString(\"id-ID\") }} IDR)\nWaiting on an approver: {{ $json.awaiting_approval_count }} ({{ $json.awaiting_approval_value.toLocaleString(\"id-ID\") }} IDR)\nHeld in the exception queue: {{ $json.held_count }} ({{ $json.held_value.toLocaleString(\"id-ID\") }} IDR)\n\nTouchless rate {{ $json.touchless_rate_pct }}% · about {{ $json.clerk_minutes_saved }} clerk-minutes not spent keying and checking.\nEarly-payment discounts worth {{ $json.early_payment_savings.toLocaleString(\"id-ID\") }} IDR are available if the schedule below is followed.\n\nHeld, and who owns it:\n{{ $json.exceptions.length ? $json.exceptions.map(e => \"- [\" + e.code + \"] \" + e.vendor + \" \" + e.invoice + \" -> \" + e.owner + \" - \" + e.why).join(\"\\n\") : \"Nothing held. Every invoice matched.\" }}",
+              "value": "=*Accounts Payable — run {{ $json.run_id }}*{{ ($json.auto_posted_count + $json.awaiting_approval_count) === 0 ? \"\\n\\n[DEMO] Every invoice this run was held, because the demo purchase orders have already been fully invoiced by an earlier run. This is the draw-down working, not a fault. Run [PORTFOLIO] Reset AP Demo Ledger to see the full branch mix again.\" : \"\" }}\n{{ $json.invoices_processed }} invoices worth {{ $json.total_billed.toLocaleString(\"id-ID\") }} IDR came in.\n\nPosted with no human touch: {{ $json.auto_posted_count }} ({{ $json.auto_posted_value.toLocaleString(\"id-ID\") }} IDR)\nWaiting on an approver: {{ $json.awaiting_approval_count }} ({{ $json.awaiting_approval_value.toLocaleString(\"id-ID\") }} IDR)\nHeld in the exception queue: {{ $json.held_count }} ({{ $json.held_value.toLocaleString(\"id-ID\") }} IDR)\n\nTouchless rate {{ $json.touchless_rate_pct }}% — {{ $json.touchless_count }} of {{ $json.invoices_processed }} invoices were posted with nobody touching them, worth about {{ $json.clerk_minutes_saved }} clerk-minutes. The other {{ $json.human_touches_required }} still cost a person their attention.\nLedger: {{ $json.ledger_writes_ok }} of {{ $json.ledger_writes_attempted }} decisions written{{ $json.ledger_writes_failed > 0 ? \" — \" + $json.ledger_writes_failed + \" WRITE(S) FAILED and are not recorded: \" + $json.ledger_write_failures.join(\", \") + \". Re-run before releasing payment.\" : \".\" }}\nEarly-payment discounts worth {{ $json.early_payment_savings.toLocaleString(\"id-ID\") }} IDR are available if the schedule below is followed.\n\nDiscounts on the table:\n{{ $json.discount_opportunities.length ? $json.discount_opportunities.map(d => \"- \" + d.vendor + \" \" + d.invoice + \" saves \" + d.save.toLocaleString(\"id-ID\") + \" IDR if paid by \" + d.pay_by + \" (\" + d.terms + \")\").join(\"\\n\") : \"None this run.\" }}\n\nWhen to pay:\n{{ $json.payment_schedule.length ? $json.payment_schedule.map(p => \"- \" + p.pay_on + \"  \" + p.vendor + \" \" + p.invoice + \"  \" + p.amount.toLocaleString(\"id-ID\") + \" IDR  (\" + p.approval + \")\").join(\"\\n\") : \"Nothing is cleared for payment this run.\" }}\n\nWhere the money is concentrated:\n{{ $json.vendor_breakdown.map(v => \"- \" + v.vendor + \": \" + v.invoices + (v.invoices === 1 ? \" invoice, \" : \" invoices, \") + v.billed.toLocaleString(\"id-ID\") + \" IDR billed (\" + v.share_pct + \"% of the run), \" + v.held.toLocaleString(\"id-ID\") + \" IDR of it held\").join(\"\\n\") }}\n{{ $json.over_consumption_count > 0 ? \"\\nBilled against receipts that were already fully invoiced: \" + $json.over_consumption_count + \" (\" + $json.over_consumption_value.toLocaleString(\"id-ID\") + \" IDR). Every one of these would have been a second payment for goods already paid for.\\n\" : \"\" }}\n\nHeld, and who owns it:\n{{ $json.exceptions.length ? $json.exceptions.map(e => \"- [\" + e.code + \"] \" + e.vendor + \" \" + e.invoice + \" -> \" + e.owner + (e.also && e.also.length ? \" (also \" + e.also.join(\", \") + \")\" : \"\") + \" - \" + e.why).join(\"\\n\") : \"Nothing held. Every invoice matched.\" }}\n\nPosted straight through — journal entries raised this run:\n{{ $json.journal_entries.length ? $json.journal_entries.map(j => j.reference + \"\\n\" + j.entry).join(\"\\n\\n\") : \"Nothing posted without a human this run.\" }}",
               "type": "string"
             }
           ]
-        }
+        },
+        "includeOtherFields": true,
+        "options": {}
       },
+      "id": "233cd9d3-a59a-4b1f-adb4-785c812193b4",
+      "name": "Format Run Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2464,
+        96
+      ],
       "notes": "The only thing a finance lead needs to read in the morning."
     },
     {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
       "id": "26ed34c0-a9f9-430d-b5b3-fe0b7047441b",
       "name": "Respond to Caller",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
         2688,
-        96
+        0
       ],
-      "parameters": {
-        "respondWith": "firstIncomingItem",
-        "options": {
-          "responseCode": 200
-        }
-      },
-      "notes": "onError set so a manual demo run, which has no webhook waiting, still finishes green.",
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "notes": "onError set so a manual demo run, which has no webhook waiting, still finishes green."
     },
     {
+      "parameters": {
+        "content": "## 1 · Intake and master data\n\nInvoices arrive on the webhook, or the demo batch stands in when the workflow is run by hand. The PO book, the goods receipts and the already-posted ledger are each read once per run and matched in memory — one query per invoice would be slower and would not make the answer any better.\n\nRun **[PORTFOLIO] Reset AP Demo Ledger** before each demo run. The goods receipts are drawn down as invoices are accepted, so a second run on the same data legitimately finds the purchase orders already consumed and holds almost everything — correct behaviour, but not the picture you want to present cold.",
+        "height": 320,
+        "width": 680,
+        "color": 4
+      },
       "id": "12c6e778-3201-416d-a693-47c19a3ff7ab",
       "name": "Sticky Note a2e5440f",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         224,
-        -380
-      ],
-      "parameters": {
-        "content": "## 1 · Intake and master data\n\nInvoices arrive on the webhook, or the demo batch stands in when the workflow is run by hand. The PO book, the goods receipts and the already-posted ledger are each read once per run and matched in memory — one query per invoice would be slower and would not make the answer any better.",
-        "color": 4,
-        "width": 680,
-        "height": 320
-      }
+        -384
+      ]
     },
     {
+      "parameters": {
+        "content": "## 2 · The decision\n\nOne node holds every rule, applied in a fixed order: field validation, duplicate guard, PO exists, goods actually received, quantity billed vs received, quantity vs PO, SKU, how much of that receipt is still open, then price against a 2% tolerance with a 50,000 IDR floor.\n\nThe goods receipt is drawn down, not re-read in full for every invoice. Quantity already invoiced — on the posted ledger and earlier in the same batch — is netted off first, so 600 units received cannot be billed 1,300 times over. Over-consumption is checked before price, because a receipt billed twice is a double payment, while a price is something procurement can still renegotiate.\n\nWhat survives is routed by value: under 10M posts itself, under 100M needs a manager, above that a director. Payment terms are read at the same time, so 2/10 NET 30 produces a pay-by date that captures the discount.",
+        "height": 420,
+        "width": 440,
+        "color": 3
+      },
       "id": "09603dd5-3458-4d58-b9a1-c31ea7846611",
       "name": "Sticky Note 97020018",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        924,
-        -380
-      ],
-      "parameters": {
-        "content": "## 2 · The decision\n\nOne node holds every rule, applied in a fixed order: field validation, duplicate guard, PO exists, goods actually received, quantity billed vs received, quantity vs PO, SKU, then price against a 2% tolerance with a 50,000 IDR floor.\n\nWhat survives is routed by value: under 10M posts itself, under 100M needs a manager, above that a director. Payment terms are read at the same time, so 2/10 NET 30 produces a pay-by date that captures the discount.",
-        "color": 3,
-        "width": 440,
-        "height": 320
-      }
+        928,
+        -384
+      ]
     },
     {
+      "parameters": {
+        "content": "## 3 · Three different pieces of paper\n\nA clean small invoice becomes a journal entry nobody reads. A clean large one becomes a single approval message with the match evidence already in it. Anything that failed becomes a ticket addressed to the team that can actually fix it — warehouse, procurement, or AP.",
+        "height": 320,
+        "width": 440,
+        "color": 5
+      },
       "id": "3d7a1c3e-db18-44a4-b3c5-497895806a20",
       "name": "Sticky Note 74fdbaae",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1384,
-        -380
-      ],
-      "parameters": {
-        "content": "## 3 · Three different pieces of paper\n\nA clean small invoice becomes a journal entry nobody reads. A clean large one becomes a single approval message with the match evidence already in it. Anything that failed becomes a ticket addressed to the team that can actually fix it — warehouse, procurement, or AP.",
-        "color": 5,
-        "width": 440,
-        "height": 320
-      }
+        1392,
+        -384
+      ]
     },
     {
+      "parameters": {
+        "content": "## 4 · Record, then report\n\nEvery decision is written back to the ledger. Accepted invoices are keyed on vendor plus invoice number — that row is what catches the same invoice when the vendor sends it again next month.\n\nRejected ones are keyed on that plus the failure code, and the duplicate index is built only from accepted rows. Two reasons. A rejected duplicate must not overwrite the record of the payment it was checked against — the first version of this did exactly that, and after one run the ledger no longer knew the August invoice had been paid. And an invoice rejected for a price variance has to be payable once procurement fixes the PO, not rejected again as a duplicate.\n\nIf the write itself fails the run does not go quietly. A lost ledger row is the one fault that can lead to paying twice, so the write is not allowed to fail softly: a node-level failure stops the run outright rather than ending green with nothing recorded. A row can also go missing without the node erroring at all, so the summary counts only the rows the data table actually handed back, names any that are not there, and never reports a row as written when it was not.",
+        "height": 320,
+        "width": 1060,
+        "color": 6
+      },
       "id": "6127aba9-ac54-4c55-8a18-ea859d2d7d73",
       "name": "Sticky Note 009eac68",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1844,
-        -380
-      ],
-      "parameters": {
-        "content": "## 4 · Record, then report\n\nEvery decision is written back to the ledger. Accepted invoices are keyed on vendor plus invoice number — that row is what catches the same invoice when the vendor sends it again next month.\n\nRejected ones are keyed on that plus the failure code, and the duplicate index is built only from accepted rows. Two reasons. A rejected duplicate must not overwrite the record of the payment it was checked against — the first version of this did exactly that, and after one run the ledger no longer knew the August invoice had been paid. And an invoice rejected for a price variance has to be payable once procurement fixes the PO, not rejected again as a duplicate.\n\nIf the write itself fails the run does not go quietly. A lost ledger row is the one fault that can lead to paying twice.",
-        "color": 6,
-        "width": 1060,
-        "height": 320
-      }
+        1856,
+        -384
+      ]
     },
     {
+      "parameters": {
+        "numberInputs": 3
+      },
       "id": "9ec04613-b605-402b-85a9-93ed281af85a",
       "name": "Collect All Decisions",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
         1792,
-        192
+        176
       ],
-      "parameters": {
-        "mode": "append",
-        "numberInputs": 3
-      },
       "notes": "Fan-in. Without this the ledger write, the summary, the report and the webhook response each ran once per branch instead of once per batch."
     },
     {
-      "id": "ad2fe818-acb3-4fb5-9b52-b9450cc58fbd",
-      "name": "Ping the Approver in Slack",
-      "type": "n8n-nodes-base.slack",
-      "typeVersion": 2.7,
-      "position": [
-        1856,
-        560
-      ],
       "parameters": {
-        "resource": "message",
-        "operation": "post",
         "select": "channel",
         "channelId": {
           "__rl": true,
           "mode": "name",
           "value": "#ap-approvals"
         },
-        "messageType": "text",
         "text": "={{ $json.approval_message }}",
         "otherOptions": {
           "includeLinkToWorkflow": false,
           "mrkdwn": true
         }
       },
+      "id": "ad2fe818-acb3-4fb5-9b52-b9450cc58fbd",
+      "name": "Ping the Approver in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1792,
+        592
+      ],
+      "webhookId": "048b793a-4d87-449b-9f35-89388606ae1f",
       "disabled": true,
-      "notes": "Disabled on purpose. The approval text is already composed upstream; this is only where it lands. Pick a channel and a Slack credential to switch it on.",
-      "webhookId": "048b793a-4d87-449b-9f35-89388606ae1f"
+      "notes": "Disabled on purpose. The approval text is already composed upstream; this is only where it lands. Pick a channel and a Slack credential to switch it on."
     },
     {
-      "id": "c1e0e013-464a-4213-a392-ff5f7be8c8d7",
-      "name": "Email the Team That Owns It",
-      "type": "n8n-nodes-base.gmail",
-      "typeVersion": 2.2,
-      "position": [
-        1856,
-        720
-      ],
       "parameters": {
-        "resource": "message",
-        "operation": "send",
         "sendTo": "={{ ({ warehouse: 'gudang@example.com', procurement: 'purchasing@example.com', ap_clerk: 'ap@example.com', ap_supervisor: 'ap-lead@example.com' })[$json.ticket_owner] || 'ap@example.com' }}",
         "subject": "=[{{ $json.exception_code }}] {{ $json.vendor }} — {{ $json.invoice_number || '(no invoice number)' }}",
         "emailType": "text",
@@ -786,22 +733,20 @@
           "senderName": "AP Automation"
         }
       },
-      "disabled": true,
-      "notes": "Disabled on purpose. Each exception already knows which team owns it, so the address is chosen from ticket_owner rather than sent to one shared inbox nobody reads.",
-      "webhookId": "5c0125bc-f120-4101-ba92-cdaca2eabf33"
-    },
-    {
-      "id": "1f6886dc-48fd-4268-8ca4-b70eba296829",
-      "name": "Email the Morning AP Report",
+      "id": "c1e0e013-464a-4213-a392-ff5f7be8c8d7",
+      "name": "Email the Team That Owns It",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        2688,
-        280
+        1792,
+        784
       ],
+      "webhookId": "5c0125bc-f120-4101-ba92-cdaca2eabf33",
+      "disabled": true,
+      "notes": "Disabled on purpose. Each exception already knows which team owns it, so the address is chosen from ticket_owner rather than sent to one shared inbox nobody reads."
+    },
+    {
       "parameters": {
-        "resource": "message",
-        "operation": "send",
         "sendTo": "finance-lead@example.com",
         "subject": "={{ $json.report_title }}",
         "emailType": "text",
@@ -811,64 +756,70 @@
           "senderName": "AP Automation"
         }
       },
+      "id": "1f6886dc-48fd-4268-8ca4-b70eba296829",
+      "name": "Email the Morning AP Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        192
+      ],
+      "webhookId": "31f06bb5-29a3-49b8-a9b2-441b4ca1c618",
       "disabled": true,
-      "notes": "Disabled on purpose. One message per run to the finance lead, not one per invoice.",
-      "webhookId": "31f06bb5-29a3-49b8-a9b2-441b4ca1c618"
+      "notes": "Disabled on purpose. One message per run to the finance lead, not one per invoice."
     },
     {
+      "parameters": {
+        "content": "## 5 · Where it actually goes\n\nAll four are **switched off on purpose** and carry no credential, so the demo still runs for anyone who opens it with nothing to set up. They are wired as side branches, not in line — the invoice data reaches the ledger by exactly the same path whether they are on or off.\n\n**Xero** takes the auto-approved bills as ACCPAY, status AUTHORISED, because only invoices that cleared the full three-way match under the touchless ceiling get this far. Line amounts carry **no tax** (`NoTax`), so the figure on the Xero bill is the same number the ledger records, the journal entry debits to `5-1200`, and the report shows. The other two settings both disagree with the journal entry: `Inclusive` splits that amount into net plus input tax and posts only the net to `5-1200`, and `Exclusive` adds PPN on top of it. If your AP is VAT-registered and you want the tax split, change the journal entry in the same branch to match.\n**Slack** pings the one approver who has to look at it, with the match evidence already in the message.\n**Gmail** sends each exception to the team that owns it — warehouse, procurement or AP — rather than to one shared inbox nobody reads, and sends the finance lead a single run report in the morning.\n\n**Slack and Gmail** need a credential and a channel or address, and nothing else. **Xero needs three things and will not work with only a credential:** the tenant id of the organisation (the `organizationId` placeholder on the node), a Xero ContactID for the supplier — a GUID, not a name, so put a *Contact → Get Many* lookup in front of this node and have it set `xero_contact_id` — and an account code that exists in your chart of accounts. The node ships with `5-1200`, the same purchases account the journal entry in this branch debits; change both together if yours differs.",
+        "height": 300,
+        "width": 1320,
+        "color": 7
+      },
       "id": "fe801602-66cd-4c00-b665-2f448f78c231",
       "name": "Sticky Note Destinations",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1560,
-        880
-      ],
-      "parameters": {
-        "color": 7,
-        "width": 1320,
-        "height": 210,
-        "content": "## 5 · Where it actually goes\n\nAll four are **switched off on purpose** and carry no credential, so the demo still runs for anyone who opens it with nothing to set up. They are wired as side branches, not in line — the invoice data reaches the ledger by exactly the same path whether they are on or off.\n\n**Xero** takes the auto-approved bills as ACCPAY, status AUTHORISED, because only invoices that cleared the full three-way match under the touchless ceiling get this far. Xero's own planned payment date is fed from `pay_on`, so a 2/10 NET 30 discount is captured rather than missed.\n**Slack** pings the one approver who has to look at it, with the match evidence already in the message.\n**Gmail** sends each exception to the team that owns it — warehouse, procurement or AP — rather than to one shared inbox nobody reads, and sends the finance lead a single run report in the morning.\n\nTurn one on by attaching a credential and picking the organisation, channel or address. Nothing else changes."
-      }
+        1568,
+        992
+      ]
     },
     {
-      "id": "a4e90363-4ecf-4c21-b7ce-c0a551fd8db1",
-      "name": "Post Bill to Xero",
-      "type": "n8n-nodes-base.xero",
-      "typeVersion": 1,
-      "position": [
-        1856,
-        400
-      ],
       "parameters": {
-        "resource": "invoice",
-        "operation": "create",
-        "organizationId": "",
         "type": "ACCPAY",
-        "contactId": "={{ $json.vendor }}",
+        "contactId": "={{ $json.xero_contact_id || \"PASTE-XERO-CONTACT-ID-HERE\" }}",
         "lineItemsUi": {
           "lineItemsValues": [
             {
               "description": "={{ $json.sku }} on {{ $json.po_number }} (GRN {{ $json.grn_numbers }})",
               "quantity": "={{ $json.qty_billed }}",
               "unitAmount": "={{ $json.unit_price }}",
-              "accountCode": "310",
-              "taxType": "INPUT"
+              "accountCode": "5-1200",
+              "taxType": "NONE"
             }
           ]
         },
         "additionalFields": {
-          "invoiceNumber": "={{ $json.invoice_number }}",
+          "currency": "={{ $json.currency }}",
           "date": "={{ $json.invoice_date }}",
           "dueDate": "={{ $json.due_date }}",
+          "invoiceNumber": "={{ $json.invoice_number }}",
+          "lineAmountType": "NoTax",
           "plannedPaymentDate": "={{ $json.pay_on }}",
-          "currency": "={{ $json.currency }}",
-          "lineAmountType": "Exclusive",
           "status": "AUTHORISED"
-        }
+        },
+        "organizationId": "PASTE-YOUR-XERO-TENANT-ID-HERE"
       },
+      "id": "a4e90363-4ecf-4c21-b7ce-c0a551fd8db1",
+      "name": "Post Bill to Xero",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        400
+      ],
       "disabled": true,
-      "notes": "Disabled on purpose. Status is AUTHORISED, not DRAFT, because only invoices that cleared the full three-way match AND sit under the touchless ceiling ever reach this node — anything less certain went to an approver or the exception queue. Xero wants the supplier's ContactID (a GUID), not their name: a real deployment puts a Xero 'Contact > Get Many' lookup in front of this, or caches the vendor-to-ContactID map. Left as the vendor name so the intent is readable on the canvas."
+      "notes": "Disabled on purpose, and it will not run on a credential alone. Three things must be supplied. organizationId is the Xero tenant id of the organisation and is required — the placeholder on the node is there to be replaced. contactId must be a Xero ContactID (a GUID); the vendor name will not resolve, so put a Contact > Get Many lookup in front of this node and have it set xero_contact_id, or paste the id over the placeholder. accountCode 5-1200 is the same purchases account the journal entry in this branch debits — change both together if your chart of accounts differs. Line amounts carry no tax (lineAmountType NoTax, taxType NONE), so the full invoice amount is what posts to 5-1200 — the same figure the ledger records, the journal entry debits and the report shows. The alternatives both disagree with the journal entry: Inclusive splits the amount into net plus input tax and posts only the net, and Exclusive adds PPN on top. If your AP is VAT-registered and you want the tax split, change the journal entry in this branch to match."
     }
   ],
   "connections": {
@@ -989,13 +940,6 @@
             "type": "main",
             "index": 0
           }
-        ],
-        [
-          {
-            "node": "Ledger Write Failed",
-            "type": "main",
-            "index": 0
-          }
         ]
       ]
     },
@@ -1088,7 +1032,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "availableInMCP": true
+    "availableInMCP": true,
+    "binaryMode": "separate"
   },
   "pinData": {}
 }
