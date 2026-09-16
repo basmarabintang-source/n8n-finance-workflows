@@ -1,0 +1,330 @@
+{
+  "name": "[PORTFOLIO] Reset Demo Rekonsiliasi",
+  "nodes": [
+    {
+      "id": "t",
+      "name": "Reset Demo Rekonsiliasi",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "h1",
+      "name": "Kosongkan Rekening Koran",
+      "notes": "alwaysOutputData WAJIB: tabel kosong mengeluarkan 0 item dan n8n menghentikan cabang - penyemaian di belakangnya diam-diam tidak jalan.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ogOWi1qIYc15NonT",
+          "cachedResultName": "REC Bank Statement"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "h2",
+      "name": "Kosongkan Log Pencocokan",
+      "notes": "alwaysOutputData WAJIB: tabel kosong mengeluarkan 0 item dan n8n menghentikan cabang - penyemaian di belakangnya diam-diam tidak jalan.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "rtMFgRu8J9sUfSSK",
+          "cachedResultName": "REC Match Log"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "h3",
+      "name": "Hapus Pembayaran Demo Lama",
+      "notes": "alwaysOutputData WAJIB: tabel kosong mengeluarkan 0 item dan n8n menghentikan cabang - penyemaian di belakangnya diam-diam tidak jalan.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "GCl2gmR7jCwWYM2x",
+          "cachedResultName": "PAY Payment Lines"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "run_key",
+              "condition": "eq",
+              "keyValue": "REC-DEMO"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "k1",
+      "name": "Susun Rekening Koran",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Rekening koran satu rekening operasional. Aritmetikanya NYATA:\n     saldo awal 900.000.000 + kredit 328.000.000 - debit 503.179.000\n     = saldo akhir 724.821.000\n   Satu baris - biaya transfer SKN, baris 6 - sengaja dicetak dengan saldo\n   berjalan yang salah ketik 10.000. Saldo akhirnya tetap benar, persis seperti\n   ekspor bank sungguhan yang kolom saldonya kadang meleset. Pemeriksaan\n   integritas harus menangkap baris itu tanpa menganggap seluruh mutasi rusak. */\nfunction hari(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }\nconst AWAL = 900000000;\nconst b = [\n [ -5, 'TRF MASUK INV-7002',        'INV-7002',    'PT SUMBER REJEKI ABADI',   0,         180000000 ],\n [ -5, 'PEMBAYARAN VENDOR',          'TRX-REC-001', 'PT SINAR BAJA ELEKTRIK',   8584800,   0 ],\n [ -5, 'BIAYA ADMIN BULANAN',        'ADM-0911',    'BANK MANDIRI',             6500,      0 ],\n [ -4, 'PELUNASAN TAGIHAN',          'PLN-0912',    'CV ANUGERAH TEKNIK',       0,         30500000 ],\n [ -4, 'PEMBAYARAN VENDOR',          'TRX-REC-002', 'PT ANUGERAH METALINDO',    480000000, 0 ],\n [ -4, 'BIAYA TRANSFER SKN',         'SKN-0912',    'BANK MANDIRI',             2900,      0 ],\n [ -3, 'TRF MASUK INV-7006',         'INV-7006',    'UD SINAR TERANG',          0,         10000000 ],\n [ -3, 'PEMBAYARAN VENDOR',          'TRX-REC-003', 'CV BERKAH JAYA MANDIRI',   6000000,   0 ],\n [ -2, 'TRF MASUK INV-7005',         'INV-7005',    'BENGKEL KARYA MANDIRI',    0,         5000000 ],\n [ -2, 'TRANSFER',                   'TRF-88213',   'PT MAKMUR SEJAHTERA',      0,         7500000 ],\n [ -2, 'PEMBAYARAN VENDOR',          'TRX-REC-001', 'PT SINAR BAJA ELEKTRIK',   8584800,   0 ],\n [ -1, 'TRF MASUK INV-7007',         'INV-7007',    'PT GLOBAL NIAGA PERSADA',  0,         95000000 ],\n];\nlet saldo = AWAL;\nconst akhir = b.reduce(function(s,x){ return s - x[4] + x[5]; }, AWAL);\nreturn b.map(function(x, i){\n  saldo = saldo - x[4] + x[5];\n  const cetak = (i === 5) ? saldo + 10000 : saldo;   /* baris 6: salah ketik saldo */\n  return { json: {\n    line_key: 'STM-' + hari(0).split('-').join('') + '-' + String(i+1).padStart(3,'0'),\n    statement_id: 'STM-' + hari(0).split('-').join(''),\n    account_code: 'OPS-IDR-01', line_no: i+1, value_date: hari(x[0]),\n    description: x[1], reference: x[2], counterparty: x[3],\n    debit: x[4], credit: x[5], running_balance: cetak,\n    opening_balance: AWAL, closing_balance: akhir\n  }};\n});"
+      }
+    },
+    {
+      "id": "s1",
+      "name": "Tulis Rekening Koran",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ogOWi1qIYc15NonT",
+          "cachedResultName": "REC Bank Statement"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "k2",
+      "name": "Susun Pembayaran Terkirim",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Empat baris pembayaran yang dicocokkan terhadap debit di rekening koran.\n   Masing-masing menguji satu hal:\n     TRX-REC-001  lunas, ada di mutasi               - cocok\n     TRX-REC-002  lunas, ada di mutasi               - cocok\n     TRX-REC-003  DITOLAK bank, tapi mutasi mendebet - uang keluar padahal katanya gagal\n     TRX-REC-004  lunas, TIDAK ADA di mutasi         - katanya terbayar, uangnya tak pernah keluar\n   Dua yang terakhir adalah alasan rekonsiliasi ada. */\nfunction hari(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }\nconst p = [\n ['Sinar Baja Elektrik',      'INV-REC-01', 8760000,   175200, 'settled',  'TRX-REC-001', '', -5],\n ['Anugerah Metalindo',       'INV-REC-02', 480000000, 0,      'settled',  'TRX-REC-002', '', -4],\n ['Berkah Jaya Mandiri',      'INV-REC-03', 6000000,   0,      'rejected', 'TRX-REC-003', 'rekening tujuan sudah ditutup', -3],\n ['Mitra Logistik Nusantara', 'INV-REC-04', 50400000,  0,      'settled',  'TRX-REC-004', '', -3],\n];\nreturn p.map(function(x){ return { json: {\n  line_key: 'REC-DEMO|' + x[0].toUpperCase() + '|' + x[1], run_key: 'REC-DEMO',\n  vendor: x[0], invoice_number: x[1], amount: x[2], currency: 'IDR',\n  status: x[4], route_to: 'accounting_auto', hold_code: '', hold_reason: '',\n  account_number_masked: '******0000', pay_on: hari(x[7]), discount_taken: x[3],\n  bank_ref: x[5], settled_on: x[4]==='settled' ? hari(x[7]) : '', reject_reason: x[6],\n  execution_id: 'seed'\n}};});"
+      }
+    },
+    {
+      "id": "s2",
+      "name": "Tulis Pembayaran Terkirim",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "GCl2gmR7jCwWYM2x",
+          "cachedResultName": "PAY Payment Lines"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ok",
+      "name": "Konfirmasi Reset",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "executeOnce": true,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a",
+              "name": "hasil",
+              "type": "string",
+              "value": "12 baris rekening koran dan 4 pembayaran terkirim dikembalikan ke keadaan awal. Jalankan \"[PORTFOLIO] Reset AR Demo\" dulu bila tagihan AR sudah pernah dilunasi oleh run rekonsiliasi sebelumnya - rekonsiliasi menulis pembayaran pelanggan ke AR Open Invoices."
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n",
+      "name": "Sticky Reset",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -300
+      ],
+      "parameters": {
+        "width": 1200,
+        "height": 250,
+        "color": 3,
+        "content": "## Reset demo rekonsiliasi\n\nMengisi 12 baris rekening koran dan 4 pembayaran terkirim (ditandai `run_key = REC-DEMO`, jadi hanya barisnya sendiri yang dihapus).\n\nRekonsiliasi **menulis pembayaran pelanggan ke `AR Open Invoices`** - tabel yang sama yang dibaca workflow penagihan AR. Setelah satu run, tagihan yang sudah dibayar tidak akan ditagih lagi. Karena itu reset AR juga perlu dijalankan bila ingin mengulang demo dari awal.\n\nAritmetika mutasinya nyata: saldo awal + kredit - debit = saldo akhir. Satu baris sengaja salah ketik saldo berjalan."
+      }
+    }
+  ],
+  "connections": {
+    "Reset Demo Rekonsiliasi": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Rekening Koran",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Rekening Koran": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Log Pencocokan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Log Pencocokan": {
+      "main": [
+        [
+          {
+            "node": "Hapus Pembayaran Demo Lama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hapus Pembayaran Demo Lama": {
+      "main": [
+        [
+          {
+            "node": "Susun Rekening Koran",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Rekening Koran": {
+      "main": [
+        [
+          {
+            "node": "Tulis Rekening Koran",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Rekening Koran": {
+      "main": [
+        [
+          {
+            "node": "Susun Pembayaran Terkirim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Pembayaran Terkirim": {
+      "main": [
+        [
+          {
+            "node": "Tulis Pembayaran Terkirim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Pembayaran Terkirim": {
+      "main": [
+        [
+          {
+            "node": "Konfirmasi Reset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}

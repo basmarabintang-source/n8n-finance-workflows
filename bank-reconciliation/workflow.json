@@ -1,0 +1,1377 @@
+{
+  "name": "[PORTFOLIO] Bank Reconciliation",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Rekonsiliasi Rekening Koran",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "g1",
+      "name": "Muat Rekening Koran",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ogOWi1qIYc15NonT",
+          "cachedResultName": "REC Bank Statement"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "g2",
+      "name": "Muat Pembayaran Terkirim",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        460,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "GCl2gmR7jCwWYM2x",
+          "cachedResultName": "PAY Payment Lines"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "g3",
+      "name": "Muat Tagihan AR",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        680,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "eNE8oOoy5tFGeso4",
+          "cachedResultName": "AR Open Invoices"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "g4",
+      "name": "Muat Pelanggan AR",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        900,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "SjTax7NJQPsr4iCE",
+          "cachedResultName": "AR Customers"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "g5",
+      "name": "Muat Log Pencocokan",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "rtMFgRu8J9sUfSSK",
+          "cachedResultName": "REC Match Log"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "c6",
+      "name": "Mesin Rekonsiliasi",
+      "notes": "Dua arah: setiap baris rekening koran harus dijelaskan buku kita, DAN setiap pembayaran yang kita klaim lunas harus muncul di rekening koran. Arah kedua yang paling sering hilang.",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        1340,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Rekonsiliasi bank: setiap baris rekening koran harus dijelaskan oleh sesuatu\n   di buku kita, dan setiap pembayaran yang kita klaim terkirim harus muncul\n   di rekening koran. Dua arah, bukan satu. Kebanyakan otomasi hanya memeriksa\n   arah pertama, sehingga pembayaran yang katanya lunas tapi uangnya tidak pernah\n   keluar tidak pernah ketahuan.\n\n   Urutan pemeriksaan per baris:\n     1. sudah direkonsiliasi di run sebelumnya - jangan terapkan dua kali\n     2. baris ganda di rekening koran yang sama\n     3. biaya bank\n     4. debit: cocokkan ke pembayaran terkirim lewat referensi bank\n     5. kredit: nomor faktur di referensi -> faktur itu\n     6. kredit: nama pengirim -> pelanggan -> kombinasi faktur terbuka yang pas jumlahnya\n     7. selebihnya -> suspense */\n\nconst TOL = 1;                 /* selisih pembulatan yang ditoleransi, rupiah */\nconst BATAS_BIAYA = 50000;     /* debit sekecil ini dengan kata kunci biaya dianggap biaya bank */\n\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\nfunction norm(s){ return String(s||'').toUpperCase().replace(/\\b(PT|CV|UD|TBK)\\b/g,' ')\n  .replace(/[^A-Z0-9 ]/g,' ').replace(/\\s+/g,' ').trim(); }\nfunction mirip(a,b){ const A=norm(a).split(' ').filter(function(x){return x.length>2;}),\n  B=norm(b).split(' ').filter(function(x){return x.length>2;});\n  if(!A.length||!B.length) return 0; let s=0; for(const x of A) if(B.indexOf(x)!==-1) s++;\n  return s/Math.max(A.length,B.length); }\n\nconst mutasi = $('Muat Rekening Koran').all().map(function(i){ return i.json; })\n  .filter(function(r){ return r && r.line_key; })\n  .sort(function(a,b){ return Number(a.line_no) - Number(b.line_no); });\nconst bayar = $('Muat Pembayaran Terkirim').all().map(function(i){ return i.json; }).filter(function(r){ return r && r.bank_ref; });\nconst faktur = $('Muat Tagihan AR').all().map(function(i){ return i.json; }).filter(function(r){ return r && r.invoice_number; });\nconst pelanggan = $('Muat Pelanggan AR').all().map(function(i){ return i.json; }).filter(function(r){ return r && r.customer_id; });\nconst logLama = $('Muat Log Pencocokan').all().map(function(i){ return i.json; }).filter(function(r){ return r && r.line_key; });\n\nconst sudah = {};\nfor (const l of logLama) if (l.result === 'cocok' || l.result === 'perlu_tindak') sudah[l.line_key] = l;\n\n/* --- integritas rekening koran --- */\nconst awal = mutasi.length ? Number(mutasi[0].opening_balance||0) : 0;\nconst akhirTercatat = mutasi.length ? Number(mutasi[0].closing_balance||0) : 0;\nconst totKredit = mutasi.reduce(function(s,r){ return s + Number(r.credit||0); }, 0);\nconst totDebit = mutasi.reduce(function(s,r){ return s + Number(r.debit||0); }, 0);\nconst akhirHitung = awal + totKredit - totDebit;\nconst footingOk = Math.abs(akhirHitung - akhirTercatat) <= TOL;\nconst putus = [];\nlet saldo = awal;\nfor (const r of mutasi) {\n  saldo = saldo + Number(r.credit||0) - Number(r.debit||0);\n  if (Math.abs(saldo - Number(r.running_balance||0)) > TOL)\n    putus.push({ baris:r.line_no, tercetak:Number(r.running_balance||0), seharusnya:saldo, selisih:Number(r.running_balance||0)-saldo });\n}\n\nconst custById = {}; for (const c of pelanggan) custById[c.customer_id] = c;\nconst sisa = {};  /* sisa tagihan terbuka, dikurangi sambil jalan supaya satu faktur tidak dilunasi dua kali */\nfor (const f of faktur) sisa[f.invoice_number] = Math.max(0, Number(f.amount||0) - Number(f.amount_paid||0));\n\nconst keluar = [];\nconst terlihat = {};\nconst refDebit = {};\n\nfunction catat(r, hasil, kodeHasil, cocokKe, diterapkan, alasan, rute, penerapan) {\n  keluar.push({ json: {\n    match_key: 'REC-' + String($execution.id||'manual') + '|' + r.line_key,\n    line_key: r.line_key, statement_id: r.statement_id, value_date: r.value_date,\n    direction: Number(r.credit||0) > 0 ? 'masuk' : 'keluar',\n    amount: Number(r.credit||0) > 0 ? Number(r.credit) : Number(r.debit||0),\n    counterparty: r.counterparty, reference: r.reference, line_no: r.line_no,\n    result: hasil, code: kodeHasil, matched_to: cocokKe, applied_amount: diterapkan,\n    reason: alasan, route_to: rute, penerapan: penerapan || [],\n    execution_id: String($execution.id||'manual')\n  }});\n}\n\nfor (const r of mutasi) {\n  const debit = Number(r.debit||0), kredit = Number(r.credit||0);\n  const ref = String(r.reference||'').trim().toUpperCase();\n  const kunciGanda = ref + '|' + (debit || kredit) + '|' + (debit ? 'D' : 'K');\n\n  if (terlihat[kunciGanda]) {\n    catat(r,'kritis','DUPLICATE_LINE','baris '+terlihat[kunciGanda],0,\n      'Referensi '+ref+' sebesar '+rp(debit||kredit)+' sudah muncul di baris '+terlihat[kunciGanda]+' pada rekening koran yang sama. Periksa dengan bank apakah transaksinya memang terjadi dua kali.','treasury');\n    continue;\n  }\n  terlihat[kunciGanda] = r.line_no;\n  /* Baris yang dilewati TETAP harus meninggalkan jejaknya untuk pemeriksaan lain.\n     Versi pertama melewatinya sebelum mencatat apa pun, dan run kedua pun\n     (a) menerima debit ganda sebagai pembayaran sah, karena baris aslinya tak\n     pernah tercatat \"terlihat\", dan (b) menuduh pembayaran 480 juta tidak pernah\n     keluar, karena referensinya tak pernah tercatat sudah didebet. */\n  if (sudah[r.line_key]) {\n    if (debit > 0) refDebit[ref] = true;\n    catat(r,'lewati','ALREADY_RECONCILED',String(sudah[r.line_key].matched_to||''),0,\n      'Baris ini sudah direkonsiliasi pada run '+String(sudah[r.line_key].execution_id||'sebelumnya')+'. Menerapkannya lagi akan melunasi tagihan dua kali.','-');\n    continue;\n  }\n\n\n  if (debit > 0) {\n    const desk = String(r.description||'').toUpperCase();\n    if (debit < BATAS_BIAYA && /BIAYA|ADMIN|FEE|CHARGE|PROVISI/.test(desk)) {\n      catat(r,'cocok','BANK_FEE','akun biaya bank',debit,'Biaya bank '+rp(debit)+' ('+r.description+'). Dibukukan ke biaya administrasi bank.','accounting');\n      continue;\n    }\n    const p = bayar.filter(function(x){ return String(x.bank_ref).toUpperCase() === ref; })[0];\n    if (p) {\n      refDebit[ref] = true;\n      const bersih = Number(p.amount||0) - Number(p.discount_taken||0);\n      if (String(p.status) === 'rejected') {\n        catat(r,'kritis','REJECTED_BUT_DEBITED',p.vendor+' '+p.invoice_number,0,\n          'Catatan pembayaran menyatakan transfer '+ref+' DITOLAK bank ('+String(p.reject_reason||'tanpa alasan')+'), tapi rekening koran menunjukkan '+rp(debit)+' benar-benar keluar. Uangnya keluar dan tidak tercatat terbayar - vendor bisa dibayar lagi.','treasury');\n      } else if (Math.abs(bersih - debit) > TOL) {\n        catat(r,'kritis','AMOUNT_DIFFERS',p.vendor+' '+p.invoice_number,0,\n          'Debit '+rp(debit)+' tapi pembayaran '+ref+' tercatat '+rp(bersih)+'. Selisih '+rp(debit-bersih)+'.','treasury');\n      } else {\n        catat(r,'cocok','MATCH_PAYMENT',p.vendor+' '+p.invoice_number,debit,\n          'Debit '+rp(debit)+' cocok dengan pembayaran '+ref+' ke '+p.vendor+'.','accounting');\n      }\n      continue;\n    }\n    catat(r,'kritis','UNEXPLAINED_DEBIT','',0,\n      'Uang keluar '+rp(debit)+' ke '+r.counterparty+' tanpa pembayaran apa pun di buku kita. Ini yang paling mendesak di seluruh rekonsiliasi.','treasury');\n    continue;\n  }\n\n  /* --- kredit --- */\n  const noFak = (ref.match(/INV-\\d+/) || String(r.description||'').toUpperCase().match(/INV-\\d+/) || [])[0];\n  if (noFak) {\n    const f = faktur.filter(function(x){ return x.invoice_number === noFak; })[0];\n    if (!f) {\n      catat(r,'suspense','UNKNOWN_INVOICE',noFak,0,'Referensi menyebut '+noFak+' tapi faktur itu tidak ada di buku AR.','ar_clerk');\n      continue;\n    }\n    const cust = custById[f.customer_id];\n    const terbuka = sisa[noFak];\n    if (String(f.status) === 'disputed') {\n      catat(r,'perlu_tindak','DISPUTED_PAID',noFak,kredit,\n        (cust?cust.name:f.customer_id)+' membayar '+rp(kredit)+' untuk '+noFak+' yang masih DISENGKETAKAN ('+String(f.dispute_reason||'')+'). Dana diterapkan, tapi sengketanya harus ditutup - kalau nota kredit tetap diterbitkan, pelanggan jadi kelebihan bayar.','ar_manager',\n        [{ invoice_number:noFak, customer_id:f.customer_id, apply:kredit, amount_paid_baru:Number(f.amount_paid||0)+kredit }]);\n      sisa[noFak] = Math.max(0, terbuka - kredit);\n      continue;\n    }\n    if (Math.abs(kredit - terbuka) <= TOL) {\n      catat(r,'cocok','MATCH_EXACT',noFak,kredit,'Pas melunasi '+noFak+' ('+rp(kredit)+').','accounting',\n        [{ invoice_number:noFak, customer_id:f.customer_id, apply:kredit, amount_paid_baru:Number(f.amount_paid||0)+kredit }]);\n      sisa[noFak] = 0;\n    } else if (kredit < terbuka) {\n      catat(r,'perlu_tindak','PARTIAL',noFak,kredit,\n        'Dibayar '+rp(kredit)+' dari sisa '+rp(terbuka)+'. Masih kurang '+rp(terbuka-kredit)+' - tagihan tetap terbuka dan penagihan AR akan mengejar sisanya.','ar_clerk',\n        [{ invoice_number:noFak, customer_id:f.customer_id, apply:kredit, amount_paid_baru:Number(f.amount_paid||0)+kredit }]);\n      sisa[noFak] = terbuka - kredit;\n    } else {\n      catat(r,'perlu_tindak','OVERPAYMENT',noFak,terbuka,\n        'Dibayar '+rp(kredit)+' untuk sisa '+rp(terbuka)+'. Kelebihan '+rp(kredit-terbuka)+' dicatat sebagai kredit pelanggan, bukan dianggap pendapatan.','ar_clerk',\n        [{ invoice_number:noFak, customer_id:f.customer_id, apply:terbuka, amount_paid_baru:Number(f.amount_paid||0)+terbuka }]);\n      sisa[noFak] = 0;\n    }\n    continue;\n  }\n\n  /* tanpa nomor faktur: cari pelanggan dari nama pengirim, lalu kombinasi faktur yang pas */\n  const cust = pelanggan.filter(function(c){ return mirip(c.name, r.counterparty) >= 0.6; })[0];\n  if (cust) {\n    const buka = faktur.filter(function(f){ return f.customer_id===cust.customer_id && sisa[f.invoice_number]>0 && String(f.status)!=='disputed'; })\n      .sort(function(a,b){ return String(a.due_date).localeCompare(String(b.due_date)); });\n    let kombinasi = null;\n    const n = Math.min(buka.length, 12);\n    for (let m = 1; m < (1<<n) && !kombinasi; m++) {\n      let s = 0; const pilih = [];\n      for (let i = 0; i < n; i++) if (m & (1<<i)) { s += sisa[buka[i].invoice_number]; pilih.push(buka[i]); }\n      if (Math.abs(s - kredit) <= TOL) kombinasi = pilih;\n    }\n    if (kombinasi) {\n      catat(r,'cocok', kombinasi.length>1 ? 'MATCH_COMBINED' : 'MATCH_EXACT',\n        kombinasi.map(function(f){return f.invoice_number;}).join(' + '), kredit,\n        cust.name+' membayar '+rp(kredit)+' tanpa menyebut nomor faktur. Jumlahnya pas dengan '+kombinasi.length+' tagihan terbuka: '\n        + kombinasi.map(function(f){ return f.invoice_number+' ('+rp(sisa[f.invoice_number])+')'; }).join(' + ')+'.','accounting',\n        kombinasi.map(function(f){ return { invoice_number:f.invoice_number, customer_id:f.customer_id,\n          apply:sisa[f.invoice_number], amount_paid_baru:Number(f.amount_paid||0)+sisa[f.invoice_number] }; }));\n      for (const f of kombinasi) sisa[f.invoice_number] = 0;\n      continue;\n    }\n    catat(r,'suspense','NO_MATCHING_COMBINATION',cust.name,0,\n      cust.name+' membayar '+rp(kredit)+', tapi tidak ada kombinasi tagihan terbukanya yang pas dengan jumlah itu. Ditaruh di suspense sampai pelanggan menyebutkan fakturnya.','ar_clerk');\n    continue;\n  }\n  catat(r,'suspense','UNKNOWN_PAYER','',0,\n    'Uang masuk '+rp(kredit)+' dari '+r.counterparty+' (ref '+r.reference+'). Pengirimnya tidak cocok dengan pelanggan mana pun. Disimpan di suspense - bukan dianggap pendapatan - sampai ada yang mengenali.','ar_clerk');\n}\n\n/* --- arah kebalikan: yang katanya terbayar tapi tidak pernah keluar --- */\n/* Hanya pembayaran yang lunas DI DALAM rentang tanggal rekening koran ini.\n   Tanpa batas ini, pembayaran bulan lalu tampak \"hilang\" dari rekening koran\n   bulan ini - kebisingan palsu yang mengajari orang mengabaikan bagian kritis. */\nconst tglMin = mutasi.reduce(function(a,r){ return (!a || String(r.value_date) < a) ? String(r.value_date) : a; }, '');\nconst tglMax = mutasi.reduce(function(a,r){ return (!a || String(r.value_date) > a) ? String(r.value_date) : a; }, '');\nfor (const p of bayar) {\n  if (String(p.status) !== 'settled') continue;\n  const tglLunas = String(p.settled_on||'').slice(0,10);\n  if (!tglLunas || tglLunas < tglMin || tglLunas > tglMax) continue;\n  if (refDebit[String(p.bank_ref).toUpperCase()]) continue;\n  const bersih = Number(p.amount||0) - Number(p.discount_taken||0);\n  keluar.push({ json: {\n    match_key: 'REC-' + String($execution.id||'manual') + '|MISSING|' + p.bank_ref,\n    line_key: 'MISSING|' + p.bank_ref, statement_id: mutasi.length ? mutasi[0].statement_id : '',\n    value_date: String(p.settled_on||''), direction: 'keluar', amount: bersih,\n    counterparty: p.vendor, reference: p.bank_ref, line_no: 0,\n    result: 'kritis', code: 'MISSING_DEBIT', matched_to: p.vendor+' '+p.invoice_number, applied_amount: 0,\n    reason: 'Pembayaran '+p.bank_ref+' ke '+p.vendor+' sebesar '+rp(bersih)+' tercatat LUNAS pada '+String(p.settled_on||'-')\n      +', tapi tidak ada debit apa pun di rekening koran. Vendor mungkin belum menerima uangnya, sementara buku kita sudah menganggapnya terbayar.',\n    route_to: 'treasury', penerapan: [], execution_id: String($execution.id||'manual')\n  }});\n}\n\n/* integritas ikut di setiap baris supaya laporan bisa membacanya dari mana pun */\nconst integ = { saldo_awal:awal, total_kredit:totKredit, total_debit:totDebit, saldo_akhir_hitung:akhirHitung,\n  saldo_akhir_tercatat:akhirTercatat, footing_ok:footingOk, baris_saldo_putus:putus };\nfor (const k of keluar) k.json.integritas = integ;\nreturn keluar;"
+      }
+    },
+    {
+      "id": "sw1",
+      "name": "Arahkan per Hasil",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "cocok",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cocok"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "kritis",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "kritis"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r3",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "perlu_tindak",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "perlu_tindak"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r4",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "suspense",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "suspense"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "dilewati"
+        }
+      }
+    },
+    {
+      "id": "s8",
+      "name": "Tandai Cocok",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1800,
+        -360
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "catatan",
+              "value": "={{ $json.code }} · {{ $json.amount.toLocaleString(\"id-ID\") }} → {{ $json.matched_to }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s9",
+      "name": "Naikkan ke Treasury",
+      "notes": "Setiap yang sampai di sini adalah uang yang posisinya tidak diketahui dengan pasti: keluar padahal katanya gagal, lunas padahal tidak pernah keluar, atau keluar tanpa alasan.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1800,
+        -160
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "peringatan",
+              "value": "=[{{ $json.code }}] baris {{ $json.line_no || \"-\" }} · {{ $json.amount.toLocaleString(\"id-ID\") }} IDR · {{ $json.counterparty }}\n{{ $json.reason }}",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "prioritas",
+              "value": "tinggi",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s10",
+      "name": "Buat Tugas AR",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1800,
+        40
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "tugas",
+              "value": "=[{{ $json.code }}] {{ $json.matched_to }} · {{ $json.amount.toLocaleString(\"id-ID\") }} IDR\n{{ $json.reason }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s11",
+      "name": "Parkir di Suspense",
+      "notes": "Uang yang belum dikenali disimpan di suspense, bukan dibukukan sebagai pendapatan. Mengakuinya sebagai pendapatan lalu ketahuan milik pelanggan lain adalah cara cepat membuat laporan keuangan salah.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1800,
+        240
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "suspense",
+              "value": "=SUSPENSE · {{ $json.amount.toLocaleString(\"id-ID\") }} IDR dari {{ $json.counterparty }} (ref {{ $json.reference }})\n{{ $json.reason }}\nSelesaikan lewat webhook rekonsiliasi-suspense.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s12",
+      "name": "Catat Dilewati",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1800,
+        440
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "catatan",
+              "value": "={{ $json.code }}: {{ $json.reason }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d1",
+      "name": "Slack: Peringatan Treasury",
+      "disabled": true,
+      "notes": "DIMATIKAN.",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2040,
+        -160
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#treasury-alert"
+        },
+        "text": "={{ $json.peringatan }}",
+        "otherOptions": {}
+      },
+      "webhookId": "f977e1e5-e386-4f8b-80a7-23838c859053"
+    },
+    {
+      "id": "m1",
+      "name": "Kumpulkan Hasil",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2280,
+        40
+      ],
+      "parameters": {
+        "numberInputs": 5
+      }
+    },
+    {
+      "id": "w1",
+      "name": "Tulis Log Pencocokan",
+      "notes": "Log inilah yang membuat run kedua aman: baris yang sudah cocok atau sudah diterapkan dilewati, tidak dilunasi dua kali.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        40
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "rtMFgRu8J9sUfSSK",
+          "cachedResultName": "REC Match Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "match_key"
+          ],
+          "value": {
+            "match_key": "={{ $json.match_key }}",
+            "line_key": "={{ $json.line_key }}",
+            "statement_id": "={{ $json.statement_id }}",
+            "value_date": "={{ $json.value_date }}",
+            "direction": "={{ $json.direction }}",
+            "amount": "={{ $json.amount }}",
+            "counterparty": "={{ $json.counterparty }}",
+            "result": "={{ $json.result }}",
+            "code": "={{ $json.code }}",
+            "matched_to": "={{ $json.matched_to }}",
+            "applied_amount": "={{ $json.applied_amount }}",
+            "reason": "={{ $json.reason }}",
+            "route_to": "={{ $json.route_to }}",
+            "execution_id": "={{ $json.execution_id }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c16",
+      "name": "Pecah Penerapan Kas",
+      "notes": "Satu transfer bisa melunasi beberapa faktur. Dipecah per faktur sebelum ditulis ke AR.",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        -120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Satu baris rekening koran bisa melunasi beberapa faktur sekaligus, jadi\n   penerapan kas dipecah per faktur sebelum ditulis ke AR. */\nconst out = [];\n/* Dibaca dari Kumpulkan Hasil, BUKAN $input: masukan node ini adalah keluaran\n   Tulis Log Pencocokan, yang hanya mengembalikan kolom yang dipetakan. Larik\n   penerapan tidak ikut, sehingga node ini mengeluarkan 0 item dan tidak satu\n   rupiah pun sampai ke AR - dengan run yang tetap hijau. */\nfor (const it of $('Kumpulkan Hasil').all()) {\n  const r = it.json || {};\n  for (const p of (r.penerapan || [])) {\n    out.push({ json: { invoice_number:p.invoice_number, amount_paid:p.amount_paid_baru,\n      dari_baris:r.line_key, kode:r.code, diterapkan:p.apply } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "w2",
+      "name": "Terapkan ke Tagihan AR",
+      "notes": "Menulis ke AR Open Invoices - tabel yang sama yang dibaca workflow penagihan. Setelah rekonsiliasi, pelanggan yang sudah membayar tidak akan ditagih lagi besok pagi.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2940,
+        -120
+      ],
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "eNE8oOoy5tFGeso4",
+          "cachedResultName": "AR Open Invoices"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoice_number",
+              "keyValue": "={{ $json.invoice_number }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "invoice_number"
+          ],
+          "value": {
+            "invoice_number": "={{ $json.invoice_number }}",
+            "amount_paid": "={{ $json.amount_paid }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c18",
+      "name": "Ringkas Rekonsiliasi",
+      "notes": "Dihitung dari baris yang dikembalikan tabel, bukan dari niat mesin.",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        2940,
+        120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function rp(n){ return Number(n||0).toLocaleString('id-ID'); }\nconst semua = $('Kumpulkan Hasil').all().map(function(i){ return i.json; });\nlet tertulis=[]; try{ tertulis=$('Tulis Log Pencocokan').all().map(function(i){return i.json;}).filter(function(r){return r&&r.id!==undefined&&r.id!==null;}); }catch(e){}\nlet arDiperbarui=[]; try{ arDiperbarui=$('Terapkan ke Tagihan AR').all().map(function(i){return i.json;}).filter(function(r){return r&&r.id!==undefined&&r.id!==null;}); }catch(e){}\nconst integ = (semua[0]||{}).integritas || {};\nfunction g(h){ return semua.filter(function(r){ return r.result===h; }); }\nfunction jum(a){ return a.reduce(function(s,r){ return s+Number(r.amount||0); },0); }\nconst cocok=g('cocok'), tindak=g('perlu_tindak'), kritis=g('kritis'), suspense=g('suspense'), lewat=g('lewati');\nreturn [{ json: {\n  statement_id: (semua[0]||{}).statement_id || '-',\n  tanggal: new Date().toISOString().slice(0,10),\n  total: semua.length,\n  cocok: cocok.length, nilai_cocok: jum(cocok),\n  perlu_tindak: tindak.length, nilai_perlu_tindak: jum(tindak),\n  kritis: kritis.length, nilai_kritis: jum(kritis),\n  suspense: suspense.length, nilai_suspense: jum(suspense),\n  dilewati: lewat.length,\n  log_tertulis: tertulis.length, log_gagal: semua.length - tertulis.length,\n  tagihan_ar_diperbarui: arDiperbarui.length,\n  footing_ok: integ.footing_ok === true,\n  saldo_awal: Number(integ.saldo_awal||0), total_kredit: Number(integ.total_kredit||0),\n  total_debit: Number(integ.total_debit||0), saldo_akhir_hitung: Number(integ.saldo_akhir_hitung||0),\n  saldo_akhir_tercatat: Number(integ.saldo_akhir_tercatat||0),\n  saldo_putus: integ.baris_saldo_putus || [],\n  daftar_kritis: kritis.map(function(r){ return { kode:r.code, baris:r.line_no, nilai:r.amount, ke:r.counterparty, alasan:r.reason }; }),\n  daftar_tindak: tindak.map(function(r){ return { kode:r.code, faktur:r.matched_to, nilai:r.amount, alasan:r.reason }; }),\n  daftar_suspense: suspense.map(function(r){ return { kode:r.code, nilai:r.amount, dari:r.counterparty, ref:r.reference, alasan:r.reason }; }),\n  daftar_cocok: cocok.map(function(r){ return { kode:r.code, nilai:r.amount, ke:r.matched_to }; })\n}}];"
+      }
+    },
+    {
+      "id": "s19",
+      "name": "Format Laporan Rekonsiliasi",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3160,
+        120
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "judul",
+              "value": "=Rekonsiliasi {{ $json.statement_id }} — {{ $json.kritis }} kritis, {{ $json.suspense }} suspense",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "laporan",
+              "value": "=*Rekonsiliasi Bank {{ $json.statement_id }}* �� {{ $json.tanggal }}\n\n*Integritas rekening koran*\nSaldo awal {{ $json.saldo_awal.toLocaleString(\"id-ID\") }} + kredit {{ $json.total_kredit.toLocaleString(\"id-ID\") }} − debit {{ $json.total_debit.toLocaleString(\"id-ID\") }} = {{ $json.saldo_akhir_hitung.toLocaleString(\"id-ID\") }}\nSaldo akhir tercatat {{ $json.saldo_akhir_tercatat.toLocaleString(\"id-ID\") }} — {{ $json.footing_ok ? \"COCOK\" : \"TIDAK COCOK, rekening koran tidak bisa dipercaya\" }}\n{{ $json.saldo_putus.length ? \"Saldo berjalan meleset di \" + $json.saldo_putus.length + \" baris: \" + $json.saldo_putus.map(p => \"baris \" + p.baris + \" tercetak \" + p.tercetak.toLocaleString(\"id-ID\") + \", seharusnya \" + p.seharusnya.toLocaleString(\"id-ID\")).join(\"; \") + \". Saldo akhirnya tetap benar, jadi ini salah cetak kolom, bukan transaksi hilang.\" : \"Saldo berjalan utuh di setiap baris.\" }}\n\nCocok        : {{ $json.cocok }} · {{ $json.nilai_cocok.toLocaleString(\"id-ID\") }} IDR\nPerlu tindak : {{ $json.perlu_tindak }} · {{ $json.nilai_perlu_tindak.toLocaleString(\"id-ID\") }} IDR\nKritis       : {{ $json.kritis }} · {{ $json.nilai_kritis.toLocaleString(\"id-ID\") }} IDR\nSuspense     : {{ $json.suspense }} · {{ $json.nilai_suspense.toLocaleString(\"id-ID\") }} IDR\n{{ $json.dilewati ? \"Dilewati (sudah direkonsiliasi): \" + $json.dilewati + \"\\n\" : \"\" }}Log tersimpan {{ $json.log_tertulis }} dari {{ $json.total }}{{ $json.log_gagal > 0 ? \" — \" + $json.log_gagal + \" GAGAL\" : \"\" }} · tagihan AR diperbarui {{ $json.tagihan_ar_diperbarui }}\n\n{{ $json.daftar_kritis.length ? \"*KRITIS — posisi uang tidak pasti*\\n\" + $json.daftar_kritis.map(k => \"- [\" + k.kode + \"] \" + (k.baris ? \"baris \" + k.baris + \" · \" : \"\") + k.nilai.toLocaleString(\"id-ID\") + \" · \" + k.ke + \"\\n  \" + k.alasan).join(\"\\n\") + \"\\n\\n\" : \"\" }}{{ $json.daftar_tindak.length ? \"*Perlu tindak AR*\\n\" + $json.daftar_tindak.map(t => \"- [\" + t.kode + \"] \" + t.faktur + \" · \" + t.nilai.toLocaleString(\"id-ID\") + \"\\n  \" + t.alasan).join(\"\\n\") + \"\\n\\n\" : \"\" }}{{ $json.daftar_suspense.length ? \"*Suspense*\\n\" + $json.daftar_suspense.map(s => \"- [\" + s.kode + \"] \" + s.nilai.toLocaleString(\"id-ID\") + \" dari \" + s.dari + \" (ref \" + s.ref + \")\").join(\"\\n\") + \"\\n\\n\" : \"\" }}*Cocok*\n{{ $json.daftar_cocok.map(c => \"- [\" + c.kode + \"] \" + c.nilai.toLocaleString(\"id-ID\") + \" → \" + c.ke).join(\"\\n\") }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d2",
+      "name": "Gmail: Laporan Rekonsiliasi",
+      "disabled": true,
+      "notes": "DIMATIKAN.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        3380,
+        120
+      ],
+      "parameters": {
+        "sendTo": "finance-lead@example.com",
+        "subject": "={{ $json.judul }}",
+        "message": "={{ $json.laporan }}",
+        "options": {}
+      },
+      "webhookId": "daa9eb71-43ae-471c-b3b5-45dcf0ad989a"
+    },
+    {
+      "id": "t2",
+      "name": "Selesaikan Suspense (Webhook)",
+      "webhookId": "e9d4b2c7-1a36-4f58-8b90-3c6e7a1d5f24",
+      "notes": "Pintu kedua. Setelah seseorang mengenali uang di suspense - pelanggan menelepon, atau bukti transfer dikirim - penugasannya masuk lewat sini.",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        760
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rekonsiliasi-suspense",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c22",
+      "name": "Baca Penyelesaian",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        760
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const b = (($input.first().json||{}).body) || $input.first().json || {};\nconst d = Array.isArray(b.resolutions) ? b.resolutions : [];\nif (!d.length) return [{ json:{ _kosong:true } }];\nreturn d.map(function(x){ return { json:{\n  line_key:String(x.line_key||''), invoice_number:String(x.invoice_number||''),\n  amount:Number(x.amount||0), resolved_by:String(x.resolved_by||''), note:String(x.note||'')\n}};});"
+      }
+    },
+    {
+      "id": "g23",
+      "name": "Muat Tagihan untuk Suspense",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        460,
+        760
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "eNE8oOoy5tFGeso4",
+          "cachedResultName": "AR Open Invoices"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "c24",
+      "name": "Periksa Penugasan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        760
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Penugasan suspense tetap diperiksa, bukan diterapkan buta. Orang yang\n   menyelesaikan suspense bisa salah pilih faktur, dan kas yang diterapkan ke\n   faktur yang salah membuat DUA pelanggan salah sekaligus. */\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\nconst tagihan = $('Muat Tagihan untuk Suspense').all().map(function(i){return i.json;}).filter(function(r){return r&&r.invoice_number;});\nreturn $('Baca Penyelesaian').all().map(function(i){\n  const r = i.json || {};\n  const f = tagihan.filter(function(t){ return t.invoice_number===r.invoice_number; })[0];\n  const sisa = f ? Math.max(0, Number(f.amount||0)-Number(f.amount_paid||0)) : 0;\n  let ok=false, alasan='';\n  if (!r.resolved_by) alasan='Tidak ada nama penyelesai. Setiap penerapan kas harus bisa ditelusuri ke seseorang.';\n  else if (!f) alasan='Faktur '+r.invoice_number+' tidak ada.';\n  else if (String(f.status)==='disputed') alasan=r.invoice_number+' sedang disengketakan; selesaikan sengketanya dulu.';\n  else if (r.amount > sisa + 1) alasan='Jumlah '+rp(r.amount)+' melebihi sisa tagihan '+rp(sisa)+' pada '+r.invoice_number+'.';\n  else { ok=true; alasan='Diterapkan '+rp(r.amount)+' ke '+r.invoice_number+' oleh '+r.resolved_by+'. '+r.note; }\n  return { json: Object.assign({}, r, { sah:ok, alasan:alasan,\n    amount_paid_baru: f ? Number(f.amount_paid||0)+r.amount : 0, customer_id: f ? f.customer_id : '' }) };\n});"
+      }
+    },
+    {
+      "id": "sw2",
+      "name": "Sah atau Ditolak",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        900,
+        760
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "v",
+                    "leftValue": "={{ $json.sah }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "sah"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "ditolak"
+        }
+      }
+    },
+    {
+      "id": "s26",
+      "name": "Terima Penugasan",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        660
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "status_akhir",
+              "value": "diterapkan",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s27",
+      "name": "Tolak Penugasan",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        860
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "status_akhir",
+              "value": "ditolak",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "m2",
+      "name": "Kumpulkan Penugasan",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1380,
+        760
+      ],
+      "parameters": {
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "f1",
+      "name": "Hanya Penugasan Sah",
+      "notes": "Hanya yang lolos pemeriksaan yang boleh menyentuh AR. Keputusan yang dihitung tapi tidak ditegakkan tetap akan menulis - dan run-nya tetap hijau.",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1600,
+        660
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "q",
+              "leftValue": "={{ $json.status_akhir }}",
+              "rightValue": "diterapkan",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "w3",
+      "name": "Terapkan Suspense ke AR",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1820,
+        660
+      ],
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "eNE8oOoy5tFGeso4",
+          "cachedResultName": "AR Open Invoices"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoice_number",
+              "keyValue": "={{ $json.invoice_number }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "invoice_number"
+          ],
+          "value": {
+            "invoice_number": "={{ $json.invoice_number }}",
+            "amount_paid": "={{ $json.amount_paid_baru }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "w4",
+      "name": "Catat Penyelesaian",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        880
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "rtMFgRu8J9sUfSSK",
+          "cachedResultName": "REC Match Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "match_key"
+          ],
+          "value": {
+            "match_key": "={{ \"SUS-\" + $execution.id + \"|\" + $json.line_key }}",
+            "line_key": "={{ $json.line_key }}",
+            "direction": "masuk",
+            "amount": "={{ $json.amount }}",
+            "result": "={{ $json.status_akhir === \"diterapkan\" ? \"cocok\" : \"suspense\" }}",
+            "code": "={{ $json.status_akhir === \"diterapkan\" ? \"SUSPENSE_RESOLVED\" : \"RESOLUTION_REJECTED\" }}",
+            "matched_to": "={{ $json.invoice_number }}",
+            "applied_amount": "={{ $json.status_akhir === \"diterapkan\" ? $json.amount : 0 }}",
+            "reason": "={{ $json.alasan }}",
+            "route_to": "ar_clerk",
+            "execution_id": "={{ $execution.id }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c32",
+      "name": "Ringkas Penyelesaian",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        2040,
+        760
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const s = $('Kumpulkan Penugasan').all().map(function(i){return i.json;});\nlet t=[]; try{ t=$('Terapkan Suspense ke AR').all().map(function(i){return i.json;}).filter(function(r){return r&&r.id!==undefined&&r.id!==null;}); }catch(e){}\nconst sah=s.filter(function(r){return r.status_akhir==='diterapkan';}), tolak=s.filter(function(r){return r.status_akhir!=='diterapkan';});\nreturn [{ json:{ diproses:s.length, diterapkan:sah.length, ditolak:tolak.length, ar_diperbarui:t.length,\n  daftar_tolak: tolak.map(function(r){ return { faktur:r.invoice_number, alasan:r.alasan }; }) }}];"
+      }
+    },
+    {
+      "id": "r1",
+      "name": "Balas Penyelesaian",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "onError": "continueRegularOutput",
+      "position": [
+        2260,
+        760
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "n34",
+      "name": "Sticky 34",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -420
+      ],
+      "parameters": {
+        "width": 1320,
+        "height": 340,
+        "color": 4,
+        "content": "## 1 · Dua arah, bukan satu\n\nRekonsiliasi yang hanya bertanya *\"baris rekening koran ini milik siapa?\"* melewatkan separuh masalahnya. Workflow ini juga bertanya kebalikannya: **setiap pembayaran yang kita klaim lunas, adakah debitnya di bank?**\n\nIa membaca dari tiga workflow lain sekaligus: pembayaran terkirim dari **payment run**, tagihan terbuka dan pelanggan dari **penagihan AR**. Ini bagian pertama portofolio yang menyatukan sisi hutang dan sisi piutang dalam satu pandangan."
+      }
+    },
+    {
+      "id": "n35",
+      "name": "Sticky 35",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        -420
+      ],
+      "parameters": {
+        "width": 1080,
+        "height": 340,
+        "color": 4,
+        "content": "## 2 · Apa yang dicari\n\n**Kritis** — uang yang posisinya tidak pasti:\n- `REJECTED_BUT_DEBITED` — katanya gagal, uangnya keluar\n- `MISSING_DEBIT` — katanya lunas, uangnya tak pernah keluar\n- `UNEXPLAINED_DEBIT`, `DUPLICATE_LINE`, `AMOUNT_DIFFERS`\n\n**Perlu tindak AR** — `PARTIAL`, `OVERPAYMENT`, `DISPUTED_PAID`\n\n**Suspense** — uang masuk yang belum dikenali, disimpan dan **tidak** dibukukan sebagai pendapatan.\n\n**Cocok** — termasuk satu transfer yang melunasi beberapa faktur tanpa menyebut nomornya, ditemukan dari kombinasi tagihan terbuka yang pas jumlahnya."
+      }
+    },
+    {
+      "id": "n36",
+      "name": "Sticky 36",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2500,
+        -420
+      ],
+      "parameters": {
+        "width": 900,
+        "height": 340,
+        "color": 3,
+        "content": "## 3 · Aman dijalankan dua kali\n\nLog pencocokan dibaca sebelum apa pun diterapkan. Baris yang sudah cocok di run sebelumnya **dilewati**, bukan dilunasi lagi.\n\nTanpa itu, run kedua melihat INV-7002 sudah lunas lalu menandai transfer 180 juta yang sama sebagai **kelebihan bayar** - dan run-nya tetap hijau.\n\nPenerapan kas ditulis ke `AR Open Invoices`, tabel yang dibaca penagihan AR. Pelanggan yang sudah membayar tidak akan ditagih lagi besok pagi."
+      }
+    },
+    {
+      "id": "n37",
+      "name": "Sticky 37",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1080
+      ],
+      "parameters": {
+        "width": 1500,
+        "height": 260,
+        "color": 5,
+        "content": "## 4 · Pintu kedua: menyelesaikan suspense\n\nSetelah seseorang mengenali uang di suspense, penugasannya masuk lewat webhook `rekonsiliasi-suspense`.\n\nPenugasan itu **tetap diperiksa**, tidak diterapkan buta: harus ada nama penyelesai, fakturnya harus ada, tidak sedang disengketakan, dan jumlahnya tidak boleh melebihi sisa tagihan. Kas yang diterapkan ke faktur yang salah membuat dua pelanggan salah sekaligus."
+      }
+    }
+  ],
+  "connections": {
+    "Rekonsiliasi Rekening Koran": {
+      "main": [
+        [
+          {
+            "node": "Muat Rekening Koran",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Rekening Koran": {
+      "main": [
+        [
+          {
+            "node": "Muat Pembayaran Terkirim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Pembayaran Terkirim": {
+      "main": [
+        [
+          {
+            "node": "Muat Tagihan AR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Tagihan AR": {
+      "main": [
+        [
+          {
+            "node": "Muat Pelanggan AR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Pelanggan AR": {
+      "main": [
+        [
+          {
+            "node": "Muat Log Pencocokan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Log Pencocokan": {
+      "main": [
+        [
+          {
+            "node": "Mesin Rekonsiliasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesin Rekonsiliasi": {
+      "main": [
+        [
+          {
+            "node": "Arahkan per Hasil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arahkan per Hasil": {
+      "main": [
+        [
+          {
+            "node": "Tandai Cocok",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Naikkan ke Treasury",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buat Tugas AR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parkir di Suspense",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Catat Dilewati",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Naikkan ke Treasury": {
+      "main": [
+        [
+          {
+            "node": "Slack: Peringatan Treasury",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Kumpulkan Hasil",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Tandai Cocok": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Hasil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buat Tugas AR": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Hasil",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Parkir di Suspense": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Hasil",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Catat Dilewati": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Hasil",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Kumpulkan Hasil": {
+      "main": [
+        [
+          {
+            "node": "Tulis Log Pencocokan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Log Pencocokan": {
+      "main": [
+        [
+          {
+            "node": "Pecah Penerapan Kas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ringkas Rekonsiliasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pecah Penerapan Kas": {
+      "main": [
+        [
+          {
+            "node": "Terapkan ke Tagihan AR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ringkas Rekonsiliasi": {
+      "main": [
+        [
+          {
+            "node": "Format Laporan Rekonsiliasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Laporan Rekonsiliasi": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Laporan Rekonsiliasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selesaikan Suspense (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Baca Penyelesaian",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baca Penyelesaian": {
+      "main": [
+        [
+          {
+            "node": "Muat Tagihan untuk Suspense",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Tagihan untuk Suspense": {
+      "main": [
+        [
+          {
+            "node": "Periksa Penugasan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Periksa Penugasan": {
+      "main": [
+        [
+          {
+            "node": "Sah atau Ditolak",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sah atau Ditolak": {
+      "main": [
+        [
+          {
+            "node": "Terima Penugasan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tolak Penugasan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Terima Penugasan": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Penugasan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tolak Penugasan": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Penugasan",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Kumpulkan Penugasan": {
+      "main": [
+        [
+          {
+            "node": "Hanya Penugasan Sah",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Catat Penyelesaian",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hanya Penugasan Sah": {
+      "main": [
+        [
+          {
+            "node": "Terapkan Suspense ke AR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Terapkan Suspense ke AR": {
+      "main": [
+        [
+          {
+            "node": "Ringkas Penyelesaian",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ringkas Penyelesaian": {
+      "main": [
+        [
+          {
+            "node": "Balas Penyelesaian",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}
