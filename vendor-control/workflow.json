@@ -1,0 +1,1294 @@
+{
+  "name": "[PORTFOLIO] Vendor Onboarding and Bank Change Control",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Proses Antrean Permintaan",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "g1",
+      "name": "Muat Permintaan Terbuka",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "hVBJMf8W1YJ7ZVBu",
+          "cachedResultName": "VENDOR Requests"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "g2",
+      "name": "Muat Master Vendor",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        460,
+        0
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ZoZCjWNXqayS4iEp",
+          "cachedResultName": "PAY Vendor Bank Details"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "c3",
+      "name": "Mesin Pemeriksaan Vendor",
+      "notes": "Tujuh kontrol dalam urutan yang disengaja. Yang terakhir - ganti rekening lewat jalur tidak aman wajib dikonfirmasi telepon - adalah pasangan dari tahanan BANK_CHANGED di workflow payment run.",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Setiap aturan yang menentukan apakah sebuah vendor boleh dibayar, dan apakah\n   nomor rekeningnya boleh berubah. Urutannya disengaja:\n\n     1. data tidak lengkap    - tidak bisa menilai yang tidak ada\n     2. NPWP tidak sah        - identitas pajak salah bentuk, ditolak di depan\n     3. vendor ditahan        - halangan hukum, sebelum urusan lain\n     4. duplikat              - vendor kembar memecah riwayat dan mengundang bayar ganda\n     5. nama rekening beda    - rekening atas nama lain adalah bendera merah klasik\n     6. pemisahan wewenang    - peminta tidak boleh merangkap penyetuju\n     7. jalur permintaan      - ganti rekening lewat email WAJIB dikonfirmasi telepon\n\n   Nomor 7 adalah pasangan dari tahanan BANK_CHANGED di workflow payment run.\n   Payment run menahan uangnya; proses inilah yang melepasnya - dan satu-satunya\n   pelepasan yang sah adalah telepon ke nomor LAMA yang sudah tersimpan di master,\n   bukan nomor mana pun yang tertulis di permintaan itu sendiri. */\n\nconst JALUR_AMAN = ['vendor_portal'];\n\nfunction norm(s){ return String(s||'').toUpperCase()\n  .replace(/\\b(PT|CV|UD|TBK|PERSERO)\\b/g,' ')\n  .replace(/[^A-Z0-9 ]/g,' ').replace(/\\s+/g,' ').trim(); }\nfunction token(s){ return norm(s).split(' ').filter(function(x){ return x.length>2; }); }\nfunction miripNama(a,b){\n  const A=token(a), B=token(b);\n  if(!A.length||!B.length) return 0;\n  let sama=0;\n  for(const x of A) if(B.indexOf(x)!==-1) sama++;\n  return sama/Math.max(A.length,B.length);\n}\nfunction npwpSah(v){\n  const d=String(v||'').replace(/[^0-9]/g,'');\n  return { digit:d, sah: d.length===15 };\n}\n\nconst hariIni = new Date().toISOString().slice(0,10);\n\nconst master = $('Muat Master Vendor').all().map(function(i){ return i.json; })\n  .filter(function(m){ return m && m.vendor; });\n\nconst keluar = [];\nconst npwpDipakai = {};\nfor (const m of master) {\n  const d = npwpSah(m.npwp).digit;\n  if (d && d.length===15) npwpDipakai[d] = m.vendor;\n}\n\n/* Dibaca lewat nama node, bukan $input: node pemuat master berada di antara\n   pemuat permintaan dan node ini, jadi $input berisi baris MASTER, bukan\n   permintaan. Tanpa ini mesin diam-diam menilai 6 vendor, bukan 10 permintaan. */\nfor (const it of $('Muat Permintaan Terbuka').all()) {\n  const r = it.json || {};\n  const tipe = String(r.request_type||'new');\n  const vendor = String(r.vendor||'').trim();\n  const legal = String(r.legal_name||'').trim();\n  const np = npwpSah(r.npwp);\n  const jalur = String(r.channel||'').trim();\n  const diminta = String(r.requested_by||'').trim().toLowerCase();\n\n  const adaDiMaster = master.filter(function(m){\n    return norm(m.vendor) === norm(vendor); })[0] || null;\n\n  /* Skor kelengkapan: lapangan yang benar-benar dibutuhkan untuk membayar\n     seseorang dan untuk bisa menghubunginya lagi kalau ada yang aneh. */\n  const wajib = ['legal_name','npwp','bank_name','account_number','account_name','contact_email','contact_phone'];\n  const isi = wajib.filter(function(k){ return String(r[k]||'').trim() !== ''; });\n  const skor = Math.round(isi.length / wajib.length * 100);\n  const hilang = wajib.filter(function(k){ return String(r[k]||'').trim() === ''; });\n\n  /* Duplikat dicari tiga arah: nama mirip, NPWP sama, atau nomor rekening sama.\n     Nomor rekening yang sama untuk dua vendor berbeda hampir selalu berarti\n     salah satu dari keduanya bukan vendor yang sesungguhnya. */\n  let dupNama=null, dupRek=null;\n  for (const m of master) {\n    if (tipe==='new' && miripNama(m.vendor, vendor) >= 0.6 && norm(m.vendor)!==norm(vendor)) { dupNama = m; break; }\n  }\n  for (const m of master) {\n    if (String(m.account_number||'') === String(r.account_number||'') && norm(m.vendor)!==norm(vendor)) { dupRek = m; break; }\n  }\n  const dupNpwp = (tipe==='new' && np.sah && npwpDipakai[np.digit] && norm(npwpDipakai[np.digit])!==norm(vendor))\n    ? npwpDipakai[np.digit] : null;\n\n  const namaRekCocok = miripNama(r.account_name, legal) >= 0.6;\n  const jalurAman = JALUR_AMAN.indexOf(jalur) !== -1;\n\n  let hasil='', kode='', rute='', alasan='', perluCallback=false;\n\n  if (hilang.length) {\n    hasil='ditahan'; kode='DATA_INCOMPLETE'; rute='ap_clerk';\n    alasan='Kelengkapan '+skor+'%. Belum ada: '+hilang.join(', ')+'. Tidak bisa dinilai sebelum lengkap.';\n  } else if (!np.sah) {\n    hasil='ditolak'; kode='NPWP_INVALID'; rute='ap_clerk';\n    alasan='NPWP '+np.digit.length+' digit, seharusnya 15. Identitas pajak yang salah bentuk tidak boleh masuk master.';\n  } else if (adaDiMaster && adaDiMaster.sanctions_flag === true) {\n    hasil='ditolak'; kode='SANCTIONS'; rute='legal';\n    alasan=vendor+' sedang ditahan: '+String(adaDiMaster.notes||'ditandai pada daftar tahan')+' Legal harus melepas dulu.';\n  } else if (dupNpwp) {\n    hasil='ditahan'; kode='DUPLICATE_NPWP'; rute='ap_supervisor';\n    alasan='NPWP '+np.digit+' sudah terdaftar atas nama '+dupNpwp+'. Satu badan pajak, satu baris master.';\n  } else if (dupNama) {\n    hasil='ditahan'; kode='DUPLICATE_NAME'; rute='ap_supervisor';\n    alasan='Namanya '+Math.round(miripNama(dupNama.vendor,vendor)*100)+'% mirip dengan \"'+dupNama.vendor\n      +'\" yang sudah ada. Vendor kembar memecah riwayat pembayaran dan membuka jalan bayar ganda.';\n  } else if (dupRek) {\n    hasil='ditahan'; kode='DUPLICATE_ACCOUNT'; rute='treasury';\n    alasan='Nomor rekening ini sudah dipakai '+dupRek.vendor+'. Dua vendor satu rekening hampir selalu berarti salah satunya bukan vendor sungguhan.';\n  } else if (!namaRekCocok) {\n    hasil='ditahan'; kode='NAME_MISMATCH'; rute='treasury';\n    alasan='Nama rekening \"'+String(r.account_name||'')+'\" tidak cocok dengan badan usaha \"'+legal\n      +'\". Rekening atas nama perorangan untuk tagihan badan usaha adalah bendera merah klasik.';\n  } else if (tipe==='bank_change' && diminta === 'treasury.lead@example.com') {\n    hasil='ditahan'; kode='SOD_VIOLATION'; rute='finance_manager';\n    alasan='Diminta oleh '+diminta+', yang juga berwenang menyetujui perubahan rekening. Peminta dan penyetuju harus dua orang berbeda.';\n  } else if (tipe==='bank_change' && !jalurAman) {\n    hasil='ditahan'; kode='CALLBACK_REQUIRED'; rute='treasury'; perluCallback=true;\n    alasan='Permohonan ganti rekening masuk lewat '+jalur+', bukan portal vendor. Telepon '+vendor\n      +' memakai nomor LAMA yang tersimpan di master - jangan memakai nomor mana pun yang tertulis di permintaan ini - lalu catat konfirmasinya.';\n  } else {\n    hasil='disetujui'; kode=''; rute='ap_clerk';\n    alasan = tipe==='bank_change'\n      ? 'Ganti rekening lewat portal vendor, data lengkap, nama rekening cocok, peminta bukan penyetuju.'\n      : 'Vendor baru lolos seluruh pemeriksaan. Kelengkapan '+skor+'%.';\n  }\n\n  keluar.push({ json: {\n    log_key: 'VLOG-'+String($execution.id||'manual')+'|'+String(r.request_key||''),\n    request_key: String(r.request_key||''), vendor: vendor, request_type: tipe,\n    outcome: hasil, risk_code: kode, reason: alasan, route_to: rute,\n    requested_by: diminta, decided_on: hariIni,\n    callback_required: perluCallback, callback_by: '', callback_on: '', callback_number_used: '',\n    quality_score: skor, execution_id: String($execution.id||'manual'),\n    legal_name: legal, npwp: np.digit, bank_name: String(r.bank_name||''),\n    account_number: String(r.account_number||''), account_name: String(r.account_name||''),\n    contact_email: String(r.contact_email||''), contact_phone: String(r.contact_phone||''),\n    channel: jalur,\n    nomor_lama_untuk_telepon: adaDiMaster ? String(adaDiMaster.account_number||'') : '',\n    ada_di_master: adaDiMaster ? true : false\n  }});\n}\nreturn keluar;"
+      }
+    },
+    {
+      "id": "sw1",
+      "name": "Arahkan per Hasil",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        900,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a1",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "disetujui",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "disetujui"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a2",
+                    "leftValue": "={{ $json.risk_code }}",
+                    "rightValue": "CALLBACK_REQUIRED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "callback"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a3",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "ditolak",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ditolak"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "ditahan_lain"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "name": "Susun Aktivasi",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        -280
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "pesan",
+              "value": "=Vendor {{ $json.vendor }} disetujui.\n{{ $json.reason }}\nRekening {{ $json.bank_name }} {{ $json.account_number }} a.n. {{ $json.account_name }}\nKelengkapan data {{ $json.quality_score }}%.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s6",
+      "name": "Susun Tugas Telepon",
+      "notes": "Nilai terbesar yang tertahan biasanya ada di sini, dan pelepasannya hanya boleh lewat telepon ke nomor lama. Menelepon nomor yang tertulis di permintaan berarti menelepon penipunya.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        -80
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "tugas",
+              "value": "=TELEPON VERIFIKASI — {{ $json.vendor }} ({{ $json.request_key }})\n\n{{ $json.reason }}\n\nRekening BARU yang diminta : {{ $json.account_number }} a.n. {{ $json.account_name }}\nRekening LAMA di master     : {{ $json.nomor_lama_untuk_telepon }}\n\nJANGAN menelepon nomor yang tertulis di permintaan ini. Pakai nomor yang sudah tersimpan di berkas vendor. Setelah bicara, kirim konfirmasi ke webhook vendor-callback dengan nama penelepon dan nomor yang dipakai.",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "prioritas",
+              "value": "tinggi",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s7",
+      "name": "Susun Penolakan",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        120
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "pesan",
+              "value": "=DITOLAK [{{ $json.risk_code }}] {{ $json.vendor }} ({{ $json.request_key }})\n{{ $json.reason }}\nPemilik tindak lanjut: {{ $json.route_to }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s8",
+      "name": "Susun Tiket Tahan",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        320
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "pesan",
+              "value": "=DITAHAN [{{ $json.risk_code }}] {{ $json.vendor }} ({{ $json.request_key }})\n{{ $json.reason }}\nPemilik tindak lanjut: {{ $json.route_to }}\nKelengkapan data {{ $json.quality_score }}%.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d1",
+      "name": "Slack: Tugas Telepon ke Treasury",
+      "disabled": true,
+      "notes": "DIMATIKAN.",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        -80
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#vendor-control"
+        },
+        "text": "={{ $json.tugas }}",
+        "otherOptions": {}
+      },
+      "webhookId": "06cab5e8-51fb-4288-8a9c-e7c946fbc959"
+    },
+    {
+      "id": "d2",
+      "name": "Gmail: Konfirmasi ke Vendor",
+      "disabled": true,
+      "notes": "DIMATIKAN.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1400,
+        -280
+      ],
+      "parameters": {
+        "sendTo": "={{ $json.contact_email }}",
+        "subject": "=Pendaftaran {{ $json.vendor }} disetujui",
+        "message": "={{ $json.pesan }}",
+        "options": {}
+      },
+      "webhookId": "9c2ce575-4fc0-4758-ab4f-91e7dce7adca"
+    },
+    {
+      "id": "m1",
+      "name": "Kumpulkan Keputusan",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1640,
+        20
+      ],
+      "parameters": {
+        "numberInputs": 4
+      }
+    },
+    {
+      "id": "w1",
+      "name": "Tulis Log Perubahan",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1860,
+        20
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "541GRVmxSHo5IIOH",
+          "cachedResultName": "VENDOR Change Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "log_key"
+          ],
+          "value": {
+            "log_key": "={{ $json.log_key }}",
+            "request_key": "={{ $json.request_key }}",
+            "vendor": "={{ $json.vendor }}",
+            "request_type": "={{ $json.request_type }}",
+            "outcome": "={{ $json.outcome }}",
+            "risk_code": "={{ $json.risk_code }}",
+            "reason": "={{ $json.reason }}",
+            "route_to": "={{ $json.route_to }}",
+            "requested_by": "={{ $json.requested_by }}",
+            "decided_on": "={{ $json.decided_on }}",
+            "callback_required": "={{ $json.callback_required }}",
+            "callback_by": "",
+            "callback_on": "",
+            "callback_number_used": "",
+            "quality_score": "={{ $json.quality_score }}",
+            "execution_id": "={{ $json.execution_id }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f1",
+      "name": "Hanya Yang Disetujui",
+      "notes": "Hanya yang benar-benar disetujui yang boleh menyentuh master vendor. Tanpa saringan ini, sebuah keputusan yang dihitung tapi tidak ditegakkan akan tetap menulis rekening baru ke master - persis kelas cacat yang paling sering lolos karena run-nya tetap hijau.",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        2080,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "q1",
+              "leftValue": "={{ $json.outcome }}",
+              "rightValue": "disetujui",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "w2",
+      "name": "Perbarui Master Vendor",
+      "notes": "Menulis ke tabel yang SAMA dengan yang dibaca payment run. Menyetujui perubahan di sini adalah yang melepas tahanan BANK_CHANGED di sana.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2300,
+        20
+      ],
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ZoZCjWNXqayS4iEp",
+          "cachedResultName": "PAY Vendor Bank Details"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vendor",
+              "keyValue": "={{ $json.vendor }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "vendor"
+          ],
+          "value": {
+            "vendor": "={{ $json.vendor }}",
+            "bank_name": "={{ $json.bank_name }}",
+            "account_number": "={{ $json.account_number }}",
+            "account_name": "={{ $json.account_name }}",
+            "currency": "IDR",
+            "verified_on": "={{ $json.decided_on }}",
+            "changed_on": "={{ $json.decided_on }}",
+            "changed_by": "={{ $json.requested_by }}",
+            "change_channel": "={{ $json.channel }}",
+            "sanctions_flag": "={{ false }}",
+            "payment_terms": "NET 30",
+            "notes": "={{ \"Disetujui lewat kontrol vendor pada \" + $json.decided_on + \". \" + $json.reason }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c15",
+      "name": "Ringkas Antrean",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        2520,
+        20
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Dihitung dari baris yang dikembalikan tabel, bukan dari niat mesin. */\nfunction n(a){ return a.length; }\nconst semua = $('Kumpulkan Keputusan').all().map(function(i){ return i.json; });\nlet ditulis = [];\ntry { ditulis = $('Tulis Log Perubahan').all().map(function(i){ return i.json; })\n      .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { ditulis = []; }\nlet keMaster = [];\ntry { keMaster = $('Perbarui Master Vendor').all().map(function(i){ return i.json; })\n      .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { keMaster = []; }\n\nconst setuju = semua.filter(function(r){ return r.outcome==='disetujui'; });\nconst tahan  = semua.filter(function(r){ return r.outcome==='ditahan'; });\nconst tolak  = semua.filter(function(r){ return r.outcome==='ditolak'; });\nconst callback = semua.filter(function(r){ return r.callback_required === true; });\n\nconst perKode = {};\nfor (const r of semua.filter(function(x){ return x.risk_code; })) {\n  if (!perKode[r.risk_code]) perKode[r.risk_code] = { kode:r.risk_code, jumlah:0, pemilik:{} };\n  perKode[r.risk_code].jumlah++; perKode[r.risk_code].pemilik[r.route_to] = true;\n}\n\nreturn [{ json: {\n  run: 'VLOG-'+String($execution.id||'manual'),\n  tanggal: new Date().toISOString().slice(0,10),\n  total: semua.length, disetujui: n(setuju), ditahan: n(tahan), ditolak: n(tolak),\n  perlu_callback: n(callback),\n  log_tertulis: ditulis.length, log_gagal: semua.length - ditulis.length,\n  master_diperbarui: keMaster.length,\n  skor_rata: semua.length ? Math.round(semua.reduce(function(s,r){ return s+Number(r.quality_score||0); },0)/semua.length) : 0,\n  rincian: Object.keys(perKode).map(function(k){\n    return { kode:k, jumlah:perKode[k].jumlah, pemilik:Object.keys(perKode[k].pemilik).join(', ') }; })\n    .sort(function(a,b){ return b.jumlah-a.jumlah; }),\n  daftar: semua.map(function(r){\n    return { req:r.request_key, vendor:r.vendor, tipe:r.request_type, hasil:r.outcome,\n             kode:r.risk_code, pemilik:r.route_to, alasan:r.reason }; }),\n  daftar_callback: callback.map(function(r){\n    return { req:r.request_key, vendor:r.vendor, telepon_ke:r.contact_phone,\n             rekening_lama:r.nomor_lama_untuk_telepon }; })\n}}];"
+      },
+      "notes": "Dijalankan dari Tulis Log Perubahan, bukan dari Perbarui Master Vendor. Kalau tidak ada satu pun permintaan yang disetujui, saringan mengeluarkan 0 item dan n8n menghentikan cabang - laporannya ikut hilang justru pada run yang paling perlu dibaca."
+    },
+    {
+      "id": "s16",
+      "name": "Format Laporan Vendor",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2740,
+        20
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "judul",
+              "value": "=Kontrol vendor {{ $json.run }} — {{ $json.disetujui }} disetujui, {{ $json.ditahan }} ditahan, {{ $json.ditolak }} ditolak",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "laporan",
+              "value": "=*Kontrol Vendor {{ $json.run }}* · {{ $json.tanggal }}\n\nDiproses   : {{ $json.total }} permintaan\nDisetujui  : {{ $json.disetujui }}\nDitahan    : {{ $json.ditahan }}\nDitolak    : {{ $json.ditolak }}\nRata-rata kelengkapan data: {{ $json.skor_rata }}%\n\nLog tersimpan: {{ $json.log_tertulis }} dari {{ $json.total }}{{ $json.log_gagal > 0 ? \" — \" + $json.log_gagal + \" GAGAL TERSIMPAN\" : \"\" }}\nMaster vendor diperbarui: {{ $json.master_diperbarui }} baris\n\n{{ $json.perlu_callback > 0 ? \"PERLU TELEPON VERIFIKASI (\" + $json.perlu_callback + \"):\\n\" + $json.daftar_callback.map(c => \"- \" + c.vendor + \" (\" + c.req + \") — telepon nomor di berkas, BUKAN \" + c.telepon_ke).join(\"\\n\") + \"\\n\" : \"\" }}\nSemua keputusan:\n{{ $json.daftar.map(d => \"- [\" + (d.kode || d.hasil.toUpperCase()) + \"] \" + d.req + \" \" + d.vendor + \" (\" + d.tipe + \") → \" + d.pemilik + \"\\n  \" + d.alasan).join(\"\\n\") }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d3",
+      "name": "Gmail: Laporan Kontrol Vendor",
+      "disabled": true,
+      "notes": "DIMATIKAN.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2960,
+        20
+      ],
+      "parameters": {
+        "sendTo": "vendor-control@example.com",
+        "subject": "={{ $json.judul }}",
+        "message": "={{ $json.laporan }}",
+        "options": {}
+      },
+      "webhookId": "539fdde1-f760-4fca-a389-a27f859baf90"
+    },
+    {
+      "id": "t2",
+      "name": "Konfirmasi Telepon (Webhook)",
+      "webhookId": "c3b7e1a9-5f22-4d80-91ab-7e4c2d6f8b10",
+      "notes": "Pintu masuk kedua. Setelah treasury benar-benar menelepon vendor di nomor lama, konfirmasinya masuk lewat sini - lengkap dengan siapa yang menelepon dan nomor mana yang dipakai, supaya ada jejak yang bisa diaudit.",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        700
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vendor-callback",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c19",
+      "name": "Baca Konfirmasi Telepon",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const masuk = $input.all().map(function(i){ return i.json; });\nconst b = (masuk[0] && (masuk[0].body || masuk[0])) || {};\nconst daftar = Array.isArray(b.confirmations) ? b.confirmations : [];\nif (!daftar.length) return [{ json:{ _kosong:true, pesan:'Tidak ada confirmations pada muatan.' } }];\nreturn daftar.map(function(c){\n  const lolos = String(c.result||'').toLowerCase()==='verified';\n  return { json:{\n    request_key:String(c.request_key||''), vendor:String(c.vendor||''),\n    hasil_telepon: lolos ? 'verified' : 'failed',\n    callback_by:String(c.called_by||''), callback_number_used:String(c.number_used||''),\n    catatan:String(c.note||''),\n    bank_name:String(c.bank_name||''), account_number:String(c.account_number||''),\n    account_name:String(c.account_name||''),\n    decided_on:new Date().toISOString().slice(0,10)\n  }};\n});"
+      }
+    },
+    {
+      "id": "sw2",
+      "name": "Terverifikasi atau Gagal",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        460,
+        700
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "v1",
+                    "leftValue": "={{ $json.hasil_telepon }}",
+                    "rightValue": "verified",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "lolos"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "gagal"
+        }
+      }
+    },
+    {
+      "id": "s21",
+      "name": "Lolos Verifikasi",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        600
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "hasil_akhir",
+              "value": "disetujui",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "catatan_akhir",
+              "value": "=Diverifikasi lewat telepon oleh {{ $json.callback_by }} ke nomor {{ $json.callback_number_used }} pada {{ $json.decided_on }}. {{ $json.catatan }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s22",
+      "name": "Gagal Verifikasi",
+      "notes": "Inilah bentuk keberhasilan yang sesungguhnya dari workflow ini: sebuah permintaan ganti rekening yang ternyata palsu, tertangkap sebelum uangnya berpindah.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        800
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "hasil_akhir",
+              "value": "ditolak",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "catatan_akhir",
+              "value": "=TELEPON GAGAL MEMVERIFIKASI. {{ $json.callback_by }} menelepon {{ $json.callback_number_used }} pada {{ $json.decided_on }} dan vendor MENYANGKAL meminta perubahan ini. {{ $json.catatan }} Perlakukan sebagai percobaan penipuan: jangan ubah master, simpan permintaan aslinya sebagai barang bukti, dan periksa pembayaran lain ke vendor ini.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "m2",
+      "name": "Kumpulkan Hasil Telepon",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        940,
+        700
+      ],
+      "parameters": {
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "f2",
+      "name": "Hanya Yang Lolos Telepon",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1160,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "q2",
+              "leftValue": "={{ $json.hasil_akhir }}",
+              "rightValue": "disetujui",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "w3",
+      "name": "Terapkan Rekening Baru",
+      "notes": "Hanya dijalankan untuk yang LOLOS telepon. changed_on ikut diperbarui, jadi payment run akan menahannya lagi selama 14 hari - dan itu memang disengaja: rekening yang baru berubah tetap baru berubah, meski perubahannya sah.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1380,
+        700
+      ],
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ZoZCjWNXqayS4iEp",
+          "cachedResultName": "PAY Vendor Bank Details"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vendor",
+              "keyValue": "={{ $json.vendor }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "vendor"
+          ],
+          "value": {
+            "vendor": "={{ $json.vendor }}",
+            "bank_name": "={{ $json.bank_name }}",
+            "account_number": "={{ $json.account_number }}",
+            "account_name": "={{ $json.account_name }}",
+            "verified_on": "={{ $json.decided_on }}",
+            "changed_on": "={{ $json.decided_on }}",
+            "changed_by": "={{ $json.callback_by }}",
+            "change_channel": "telepon_terverifikasi",
+            "notes": "={{ $json.catatan_akhir }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "w4",
+      "name": "Catat Hasil Telepon",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1160,
+        880
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "541GRVmxSHo5IIOH",
+          "cachedResultName": "VENDOR Change Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "log_key"
+          ],
+          "value": {
+            "log_key": "={{ \"VCB-\" + $execution.id + \"|\" + $json.request_key }}",
+            "request_key": "={{ $json.request_key }}",
+            "vendor": "={{ $json.vendor }}",
+            "request_type": "bank_change",
+            "outcome": "={{ $json.hasil_akhir }}",
+            "risk_code": "={{ $json.hasil_telepon === \"verified\" ? \"\" : \"CALLBACK_FAILED\" }}",
+            "reason": "={{ $json.catatan_akhir }}",
+            "route_to": "treasury",
+            "requested_by": "={{ $json.callback_by }}",
+            "decided_on": "={{ $json.decided_on }}",
+            "callback_required": "={{ true }}",
+            "callback_by": "={{ $json.callback_by }}",
+            "callback_on": "={{ $json.decided_on }}",
+            "callback_number_used": "={{ $json.callback_number_used }}",
+            "quality_score": "={{ 100 }}",
+            "execution_id": "={{ $execution.id }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c27",
+      "name": "Ringkas Verifikasi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        1600,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const semua = $('Kumpulkan Hasil Telepon').all().map(function(i){ return i.json; });\nconst lolos = semua.filter(function(r){ return r.hasil_telepon==='verified'; });\nconst gagal = semua.filter(function(r){ return r.hasil_telepon!=='verified'; });\nlet diterapkan = [];\ntry { diterapkan = $('Terapkan Rekening Baru').all().map(function(i){ return i.json; })\n      .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { diterapkan = []; }\nreturn [{ json:{\n  diproses: semua.length, lolos: lolos.length, gagal: gagal.length,\n  master_diterapkan: diterapkan.length,\n  daftar_gagal: gagal.map(function(r){ return { req:r.request_key, vendor:r.vendor, catatan:r.catatan_akhir }; }),\n  ringkas: lolos.length+' terverifikasi, '+gagal.length+' GAGAL'\n}}];"
+      }
+    },
+    {
+      "id": "s28",
+      "name": "Format Hasil Verifikasi",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1820,
+        700
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": true,
+        "include": "all",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0",
+              "name": "cb_judul",
+              "value": "=Verifikasi telepon — {{ $json.ringkas }}",
+              "type": "string"
+            },
+            {
+              "id": "f1",
+              "name": "cb_isi",
+              "value": "=*Hasil verifikasi telepon*\n\nDiproses          : {{ $json.diproses }}\nTerverifikasi     : {{ $json.lolos }}\nGagal / disangkal : {{ $json.gagal }}\nMaster diperbarui : {{ $json.master_diterapkan }}\n\n{{ $json.daftar_gagal.length ? \"PERCOBAAN PENIPUAN TERTANGKAP:\\n\" + $json.daftar_gagal.map(g => \"- \" + g.vendor + \" (\" + g.req + \")\\n  \" + g.catatan).join(\"\\n\") : \"Tidak ada yang disangkal vendor.\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d4",
+      "name": "Gmail: Hasil Verifikasi",
+      "disabled": true,
+      "notes": "DIMATIKAN.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2040,
+        700
+      ],
+      "parameters": {
+        "sendTo": "vendor-control@example.com",
+        "subject": "={{ $json.cb_judul }}",
+        "message": "={{ $json.cb_isi }}",
+        "options": {}
+      },
+      "webhookId": "1d94f1aa-861f-40e1-88b9-37e049797e8f"
+    },
+    {
+      "id": "r1",
+      "name": "Balas Konfirmasi",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "onError": "continueRegularOutput",
+      "position": [
+        2260,
+        700
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok:true, diproses:$json.diproses, lolos:$json.lolos, gagal:$json.gagal, master_diterapkan:$json.master_diterapkan }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "n31",
+      "name": "Sticky 31",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -360
+      ],
+      "parameters": {
+        "width": 1080,
+        "height": 300,
+        "color": 4,
+        "content": "## 1 · Antrean permintaan vendor\n\nDua jenis permintaan masuk ke satu antrean: **vendor baru** dan **ganti rekening**. Keduanya melewati pemeriksaan yang sama, tapi ganti rekening menanggung satu kontrol tambahan yang tidak dimiliki vendor baru - dan itulah kontrol yang paling sering menyelamatkan uang.\n\nMaster yang dibaca di sini adalah `PAY Vendor Bank Details`, tabel yang sama yang dipakai **payment run**. Ketiga bagian portofolio ini memakai satu master vendor, bukan tiga salinan."
+      }
+    },
+    {
+      "id": "n32",
+      "name": "Sticky 32",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        680,
+        -360
+      ],
+      "parameters": {
+        "width": 1080,
+        "height": 300,
+        "color": 4,
+        "content": "## 2 · Tujuh kontrol\n\n1. **Data tidak lengkap** — tidak bisa menilai yang tidak ada\n2. **NPWP tidak sah** — 15 digit, ditolak di depan\n3. **Vendor ditahan** — halangan hukum\n4. **Duplikat** — dicari tiga arah: nama mirip, NPWP sama, nomor rekening sama\n5. **Nama rekening beda** — rekening perorangan untuk tagihan badan usaha\n6. **Pemisahan wewenang** — peminta tidak boleh merangkap penyetuju\n7. **Jalur permintaan** — ganti rekening di luar portal wajib dikonfirmasi telepon\n\nNomor 4 mencari nomor rekening yang sama di dua vendor berbeda. Itu hampir selalu berarti salah satunya bukan vendor sungguhan."
+      }
+    },
+    {
+      "id": "n33",
+      "name": "Sticky 33",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        -360
+      ],
+      "parameters": {
+        "width": 1000,
+        "height": 300,
+        "color": 3,
+        "content": "## 3 · Hanya yang disetujui menyentuh master\n\nSaringan sebelum penulisan master bukan hiasan. Tanpa itu, keputusan yang **dihitung tapi tidak ditegakkan** tetap akan menulis rekening baru ke master - dan run-nya tetap hijau, laporannya tetap rapi, sementara rekening penipu sudah masuk.\n\nItulah kelas cacat yang paling mahal di seluruh portofolio ini, dan alasan setiap laporan di sini menghitung baris yang benar-benar dikembalikan tabel."
+      }
+    },
+    {
+      "id": "n34",
+      "name": "Sticky 34",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1050
+      ],
+      "parameters": {
+        "width": 1500,
+        "height": 280,
+        "color": 5,
+        "content": "## 4 · Pintu kedua: konfirmasi telepon\n\nPayment run **menahan** uangnya. Proses inilah yang **melepasnya** - tapi hanya setelah ada manusia yang benar-benar menelepon vendor di nomor LAMA yang tersimpan di master, bukan nomor mana pun yang tertulis di permintaan.\n\nKonfirmasi masuk lewat webhook `vendor-callback`, mencatat siapa yang menelepon dan nomor mana yang dipakai, supaya ada jejak audit. Kalau vendor **menyangkal** meminta perubahan, itu bukan kegagalan proses - itu keberhasilannya: sebuah percobaan penipuan tertangkap sebelum uang berpindah."
+      }
+    }
+  ],
+  "connections": {
+    "Proses Antrean Permintaan": {
+      "main": [
+        [
+          {
+            "node": "Muat Permintaan Terbuka",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Permintaan Terbuka": {
+      "main": [
+        [
+          {
+            "node": "Muat Master Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Master Vendor": {
+      "main": [
+        [
+          {
+            "node": "Mesin Pemeriksaan Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesin Pemeriksaan Vendor": {
+      "main": [
+        [
+          {
+            "node": "Arahkan per Hasil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arahkan per Hasil": {
+      "main": [
+        [
+          {
+            "node": "Susun Aktivasi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Susun Tugas Telepon",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Susun Penolakan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Susun Tiket Tahan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Aktivasi": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Konfirmasi ke Vendor",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Kumpulkan Keputusan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Tugas Telepon": {
+      "main": [
+        [
+          {
+            "node": "Slack: Tugas Telepon ke Treasury",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Kumpulkan Keputusan",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Susun Penolakan": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Keputusan",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Susun Tiket Tahan": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Keputusan",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Kumpulkan Keputusan": {
+      "main": [
+        [
+          {
+            "node": "Tulis Log Perubahan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Log Perubahan": {
+      "main": [
+        [
+          {
+            "node": "Hanya Yang Disetujui",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ringkas Antrean",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hanya Yang Disetujui": {
+      "main": [
+        [
+          {
+            "node": "Perbarui Master Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perbarui Master Vendor": {
+      "main": [
+        []
+      ]
+    },
+    "Ringkas Antrean": {
+      "main": [
+        [
+          {
+            "node": "Format Laporan Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Laporan Vendor": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Laporan Kontrol Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Konfirmasi Telepon (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Baca Konfirmasi Telepon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baca Konfirmasi Telepon": {
+      "main": [
+        [
+          {
+            "node": "Terverifikasi atau Gagal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Terverifikasi atau Gagal": {
+      "main": [
+        [
+          {
+            "node": "Lolos Verifikasi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gagal Verifikasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lolos Verifikasi": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Hasil Telepon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gagal Verifikasi": {
+      "main": [
+        [
+          {
+            "node": "Kumpulkan Hasil Telepon",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Kumpulkan Hasil Telepon": {
+      "main": [
+        [
+          {
+            "node": "Hanya Yang Lolos Telepon",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Catat Hasil Telepon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hanya Yang Lolos Telepon": {
+      "main": [
+        [
+          {
+            "node": "Terapkan Rekening Baru",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Terapkan Rekening Baru": {
+      "main": [
+        [
+          {
+            "node": "Ringkas Verifikasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ringkas Verifikasi": {
+      "main": [
+        [
+          {
+            "node": "Format Hasil Verifikasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Hasil Verifikasi": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Hasil Verifikasi",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Balas Konfirmasi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}

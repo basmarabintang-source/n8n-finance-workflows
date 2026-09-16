@@ -1,0 +1,224 @@
+{
+  "name": "[PORTFOLIO] Reset Demo Vendor",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Reset Demo Vendor",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "h1",
+      "name": "Kosongkan Permintaan",
+      "notes": "alwaysOutputData WAJIB: tabel yang sudah kosong mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "hVBJMf8W1YJ7ZVBu",
+          "cachedResultName": "VENDOR Requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "h2",
+      "name": "Kosongkan Log Perubahan",
+      "notes": "alwaysOutputData WAJIB: tabel yang sudah kosong mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "alwaysOutputData": true,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "541GRVmxSHo5IIOH",
+          "cachedResultName": "VENDOR Change Log"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "k1",
+      "name": "Susun Permintaan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Sepuluh permintaan yang bersama-sama menyalakan setiap kontrol.\n   Yang paling penting REQ-007: permohonan ganti rekening untuk Cahaya Teknik\n   Presisi, vendor yang pembayarannya SEDANG DITAHAN oleh workflow payment run.\n   Inilah proses yang seharusnya melepas tahanan itu - dan satu-satunya cara\n   melepasnya dengan benar adalah menelepon nomor lama yang sudah tersimpan. */\nfunction hari(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }\nconst r = [\n ['REQ-001','new','Karya Presisi Nusantara','PT KARYA PRESISI NUSANTARA','094173285402000',\n  'Bank Mandiri','1370011223344','PT KARYA PRESISI NUSANTARA','finance@karyapresisi.example.com','02155501234',\n  'ap.clerk@example.com','vendor_portal','Lengkap dan bersih. Ini yang seharusnya lolos tanpa drama.',-2],\n ['REQ-002','new','PT Sinar Baja Elektrik Jaya','PT SINAR BAJA ELEKTRIK JAYA','017234567890000',\n  'Bank BCA','5490111222333','PT SINAR BAJA ELEKTRIK JAYA','admin@sinarbajajaya.example.com','02155502345',\n  'ap.clerk@example.com','vendor_portal','NPWP sama persis dengan Sinar Baja Elektrik yang sudah terdaftar.',-3],\n ['REQ-003','new','Cahaya Teknik Presisi Utama','CV CAHAYA TEKNIK PRESISI UTAMA','081234567890000',\n  'Bank Permata','9911777888999','CV CAHAYA TEKNIK PRESISI UTAMA','info@ctpu.example.com','02155503456',\n  'ap.clerk@example.com','email','Namanya nyaris sama dengan vendor yang sudah ada.',-4],\n ['REQ-004','new','Bumi Sentosa Logistik','PT BUMI SENTOSA LOGISTIK','09417328540200',\n  'Bank BNI','7788111222333','PT BUMI SENTOSA LOGISTIK','ops@bumisentosa.example.com','02155504567',\n  'ap.clerk@example.com','vendor_portal','NPWP cuma 14 digit.',-5],\n ['REQ-005','new','Mega Teknik Abadi','PT MEGA TEKNIK ABADI','063159472801000',\n  'Bank Mandiri','1370055667788','BUDI SANTOSO','sales@megateknik.example.com','02155505678',\n  'ap.clerk@example.com','vendor_portal','Rekening atas nama perorangan, bukan nama badan usaha.',-6],\n ['REQ-006','bank_change','PT Kemasan Prima','PT KEMASAN PRIMA','052748193600000',\n  'Bank Danamon','4455666777888','PT KEMASAN PRIMA','finance@kemasanprima.example.com','02155506789',\n  'ap.clerk@example.com','vendor_portal','Vendor ini sedang ditahan karena sengketa pajak.',-2],\n ['REQ-007','bank_change','Cahaya Teknik Presisi','CAHAYA TEKNIK PRESISI','081900112233000',\n  'Bank Permata','9911223344999','CAHAYA TEKNIK PRESISI','finance.cahaya@gmail.com','02155507890',\n  'ap.clerk@example.com','email','Permohonan ganti rekening lewat email. Pembayaran vendor ini SEDANG DITAHAN payment run.',-3],\n ['REQ-008','bank_change','Berkah Jaya Mandiri','CV BERKAH JAYA MANDIRI','043826519700000',\n  'Bank BRI','3344999888777','CV BERKAH JAYA MANDIRI','admin@berkahjaya.example.com','02155508901',\n  'treasury.lead@example.com','vendor_portal','Diminta oleh orang yang juga berwenang menyetujui.',-1],\n ['REQ-009','new','Sentra Kemas Indonesia','PT SENTRA KEMAS INDONESIA','076234819500000',\n  'Bank BCA','5490999888777','PT SENTRA KEMAS INDONESIA','','',\n  'ap.clerk@example.com','email','Tanpa email dan tanpa nomor telepon.',-7],\n ['REQ-010','bank_change','Mitra Logistik Nusantara','PT MITRA LOGISTIK NUSANTARA','028461739500000',\n  'Bank Central Asia','5490332211999','PT MITRA LOGISTIK NUSANTARA','finance@mitralogistik.example.com','02155509012',\n  'ap.clerk@example.com','vendor_portal','Ganti rekening lewat portal vendor, data lengkap dan cocok.',-1],\n];\nreturn r.map(function(x){ return { json: {\n  request_key:x[0], request_type:x[1], vendor:x[2], legal_name:x[3], npwp:x[4],\n  bank_name:x[5], account_number:x[6], account_name:x[7], contact_email:x[8], contact_phone:x[9],\n  requested_by:x[10], requested_on:hari(x[13]), channel:x[11], status:'open', notes:x[12]\n}};});"
+      }
+    },
+    {
+      "id": "s1",
+      "name": "Tulis Permintaan",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "hVBJMf8W1YJ7ZVBu",
+          "cachedResultName": "VENDOR Requests"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ok",
+      "name": "Konfirmasi Reset",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "executeOnce": true,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "hasil",
+              "type": "string",
+              "value": "10 permintaan vendor dikembalikan ke keadaan awal. Jalankan \"[PORTFOLIO] Vendor Onboarding and Bank Change Control\" - setiap kontrol akan menyala pada run pertama. Master vendor TIDAK disentuh reset ini; jalankan \"[PORTFOLIO] Reset Demo Pembayaran\" dulu kalau tabel PAY Vendor Bank Details masih kosong."
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n1",
+      "name": "Sticky Reset",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -300
+      ],
+      "parameters": {
+        "width": 1100,
+        "height": 240,
+        "color": 3,
+        "content": "## Reset demo vendor\n\nMengosongkan antrean permintaan dan log perubahan, lalu mengisi 10 permintaan yang bersama-sama menyalakan setiap kontrol.\n\n**Tidak menyentuh `PAY Vendor Bank Details`** - itu master yang dipakai bersama workflow payment run, dan disemai oleh reset pembayaran. Jalankan reset pembayaran dulu kalau masternya masih kosong.\n\nREQ-007 adalah permohonan ganti rekening untuk **Cahaya Teknik Presisi** - vendor yang pembayarannya sedang ditahan payment run. Inilah proses yang melepas tahanan itu, dan satu-satunya cara melepasnya dengan benar adalah menelepon nomor lama."
+      }
+    }
+  ],
+  "connections": {
+    "Reset Demo Vendor": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Permintaan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Permintaan": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Log Perubahan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Log Perubahan": {
+      "main": [
+        [
+          {
+            "node": "Susun Permintaan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Permintaan": {
+      "main": [
+        [
+          {
+            "node": "Tulis Permintaan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Permintaan": {
+      "main": [
+        [
+          {
+            "node": "Konfirmasi Reset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}
