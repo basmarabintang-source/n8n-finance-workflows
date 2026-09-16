@@ -8,6 +8,24 @@ an invoice and paying it are different decisions, and the second one is the irre
 
 It runs on seeded demo data with no credentials, and every control fires on the first execution.
 
+> **Updated 16 September 2026. The sample output and the sections below still describe the
+> previous version, and will be rewritten from a fresh run.** Checking this README against the
+> workflow found three real defects, now fixed in `workflow.json`:
+>
+> - **Invoices still waiting on an approver were paid.** A clean 3-way match was treated as
+>   approval. `needs_approval` invoices are now held as `AWAITING_APPROVAL` until an approver with
+>   enough authority is recorded, in three new AP Invoice Ledger columns: `approved_by`,
+>   `approved_role`, `approved_on`.
+> - **Running the proposal twice before the bank replied paid the same invoices twice.** Invoices
+>   already in an unanswered bank file are now held as `IN_FLIGHT`, and that money, plus anything
+>   settled since the cash balance was recorded, no longer counts as available cash.
+> - **A bank reply for a line that was never sent created a "settled" row out of nothing.** Such
+>   replies are now reported and not written. The reply report also lists lines the bank has not
+>   answered and settlements whose amount differs from what was sent.
+>
+> The bank file now carries only lines that were actually stored, and the reset seeds a case for
+> each of the seven controls.
+
 ```
 *Run Pembayaran RUN-2900* · 2026-09-16
 Rekening sumber OPS-IDR-01 · boleh dipakai 750.000.000 IDR
@@ -41,7 +59,7 @@ email, from a gmail address.
 
 | file | what |
 |---|---|
-| `workflow.json` | the pipeline, 38 nodes (33 functional + 5 sticky notes) |
+| `workflow.json` | the pipeline, 40 nodes (35 functional + 5 sticky notes) |
 | `reset.json` | rebuilds all demo data, 16 nodes |
 
 No CSVs here — unlike the AP piece, the reset workflow seeds every table itself, and computes

@@ -10,6 +10,22 @@ puts the payables side and the receivables side in one view.
 
 It runs on seeded demo data with no credentials, and every check fires on the first execution.
 
+> **Updated 16 September 2026. The sample output and the sections below still describe the
+> previous version, and will be rewritten from a fresh run.** Checking this README against the
+> workflow found real defects, now fixed in `workflow.json`:
+>
+> - **The suspense webhook could apply the same cash twice.** Re-posting a resolution applied it
+>   again, and several assignments in one request could together apply more than the transfer was
+>   worth. Each assignment is now checked against the money on its own statement line, including
+>   what earlier requests already applied, and a line that was never in suspense is refused.
+> - **A request in which every assignment was refused got no reply at all.** The summary now runs
+>   on every request.
+> - **A payment that matched more than one combination of invoices was applied to the first one
+>   found.** It now goes to suspense as `AMBIGUOUS_COMBINATION` instead of being guessed.
+>
+> An overpayment's excess is no longer described as "recorded as customer credit": nothing records
+> it, so the reason text now says the excess is unapplied and AR decides what happens to it.
+
 ```
 *Rekonsiliasi Bank STM-20260916* · 2026-09-16
 
@@ -55,7 +71,7 @@ statement in both directions.
 
 | file | what |
 |---|---|
-| `workflow.json` | the pipeline, 38 nodes (34 functional + 4 sticky notes) |
+| `workflow.json` | the pipeline, 39 nodes (35 functional + 4 sticky notes) |
 | `reset.json` | rebuilds the 12-line statement and 4 sent payments, 10 nodes |
 
 ## Running it yourself

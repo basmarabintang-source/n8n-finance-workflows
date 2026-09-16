@@ -133,7 +133,7 @@
     {
       "id": "c6",
       "name": "Mesin Proposal Pembayaran",
-      "notes": "Semua aturan yang menentukan uang keluar ada di sini, dalam urutan yang disengaja: rekening tidak ada, sanksi, pembayaran ganda, rekening baru berubah, nilai terlalu kecil, lalu kas. Kas paling akhir karena itu soal penjadwalan, bukan penolakan.",
+      "notes": "Semua aturan yang menentukan uang keluar ada di sini, dalam urutan yang disengaja: rekening tidak ada, sanksi, sudah atau sedang dibayar, rekening baru berubah, belum disetujui, terlalu kecil, lalu kas. Kas paling akhir karena itu soal penjadwalan, bukan penolakan.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -143,13 +143,13 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Satu node memegang setiap aturan yang menentukan apakah uang keluar.\n   Urutannya disengaja dan penting:\n\n     1. rekening vendor tidak ada  - tidak bisa membayar ke ketiadaan\n     2. vendor ditahan (sanksi)    - halangan hukum, diperiksa sebelum urusan uang\n     3. faktur sudah pernah dibayar- pembayaran ganda tidak bisa ditarik kembali\n     4. rekening baru berubah      - penipuan pengalihan pembayaran\n     5. nilai terlalu kecil        - biaya transfer melebihi manfaatnya\n     6. kas tidak cukup            - ini penjadwalan, bukan penolakan, jadi paling akhir\n\n   Nomor 4 adalah alasan utama workflow ini ada. Penipuan pembayaran yang\n   berhasil hampir selalu berbentuk sama: email meminta \"rekening kami ganti\",\n   lalu satu transfer besar hilang. Satu-satunya pertahanan yang bekerja adalah\n   menahan pembayaran ketika nomor rekening berubah baru-baru ini, dan menelepon\n   vendor lewat nomor lama - bukan nomor yang tertulis di email itu. */\n\nconst HARI_REKENING_BARU   = 14;\nconst PLAFON_TANPA_SENTUH  = 10000000;\nconst PLAFON_MANAJER       = 100000000;\nconst PLAFON_DIREKTUR      = 400000000;\nconst MIN_BAYAR            = 100000;\n\nfunction toNum(v){ if(v===null||v===undefined||v==='') return 0;\n  const n = Number(String(v).split(',').join('')); return isNaN(n)?0:n; }\nfunction hariAntara(a,b){ const x=Date.parse(a), y=Date.parse(b);\n  if(isNaN(x)||isNaN(y)) return null; return Math.round((y-x)/86400000); }\nfunction samar(no){ const s=String(no||''); return s.length<5 ? '****' : '******'+s.slice(-4); }\n\nconst hariIni = new Date().toISOString().slice(0,10);\n\n/* --- master --- */\nconst bankVendor = {};\nfor (const it of $('Muat Rekening Vendor').all()) {\n  const r = it.json || {};\n  if (r.vendor) bankVendor[String(r.vendor).trim().toUpperCase()] = r;\n}\n\n/* Hanya baris yang benar-benar dikembalikan tabel yang dihitung sebagai\n   pembayaran terdahulu. Menghitung niat, bukan hasil, adalah cara paling mudah\n   membayar dua kali. */\nconst sudahDibayar = {};\nfor (const it of $('Muat Pembayaran Sebelumnya').all()) {\n  const r = it.json || {};\n  const st = String(r.status||'');\n  if (st !== 'settled' && st !== 'sent') continue;\n  if (!r.vendor || !r.invoice_number) continue;\n  sudahDibayar[String(r.vendor).trim().toUpperCase() + '|' + String(r.invoice_number).trim()] = r;\n}\n\nconst akunArr = $('Muat Posisi Kas').all().map(function(i){ return i.json; })\n  .filter(function(a){ return a && a.account_code; });\nconst akun = akunArr[0] || { account_code:'(tidak ada)', balance:0, min_buffer:0, cost_of_cash_pct:0, currency:'IDR' };\nconst saldo = toNum(akun.balance);\nconst buffer = toNum(akun.min_buffer);\nconst bolehPakai = Math.max(0, saldo - buffer);\nconst biayaKasPct = toNum(akun.cost_of_cash_pct);\n\n/* --- faktur yang layak dibayar --- */\nconst faktur = [];\nfor (const it of $('Muat Faktur Disetujui').all()) {\n  const r = it.json || {};\n  const d = String(r.decision||'');\n  if (d !== 'auto_approve' && d !== 'needs_approval') continue;\n  const jml = toNum(r.amount);\n  if (jml <= 0) continue;\n  faktur.push(r);\n}\n\n/* Diskon bayar-awal hanya diambil kalau memang menguntungkan. \"2/10 NET 30\"\n   berarti hemat 2% bila dibayar 20 hari lebih cepat; itu setara bunga tahunan\n   sekitar 36%, jauh di atas biaya kas 12%, jadi layak diambil. Membandingkan\n   keduanya - bukan sekadar melihat ada diskon - adalah bedanya bendahara yang\n   berhitung dengan yang sekadar cepat membayar. */\nfunction bacaTermin(teks){\n  const t = String(teks||'NET 30').toUpperCase();\n  const net = (t.match(/NET\\s*(\\d+)/)||[])[1];\n  const disk = t.match(/(\\d+(?:\\.\\d+)?)\\s*\\/\\s*(\\d+)/);\n  return { netHari: net?parseInt(net,10):30,\n           diskonPct: disk?parseFloat(disk[1]):0,\n           diskonHari: disk?parseInt(disk[2],10):0 };\n}\n\nconst keluar = [];\nlet dipakai = 0;\n\n/* Urutan pembayaran: yang menghasilkan diskon dulu (itu uang nyata yang hilang\n   kalau lewat tanggal), lalu yang paling tua. */\nfaktur.sort(function(a,b){\n  const ta = bacaTermin((bankVendor[String(a.vendor||'').trim().toUpperCase()]||{}).payment_terms);\n  const tb = bacaTermin((bankVendor[String(b.vendor||'').trim().toUpperCase()]||{}).payment_terms);\n  if ((tb.diskonPct>0) !== (ta.diskonPct>0)) return tb.diskonPct>0 ? 1 : -1;\n  return String(a.processed_at||'').localeCompare(String(b.processed_at||''));\n});\n\nfor (const f of faktur) {\n  const vendor = String(f.vendor||'').trim();\n  const vKey = vendor.toUpperCase();\n  const noFaktur = String(f.invoice_number||'').trim();\n  const jml = toNum(f.amount);\n  const bank = bankVendor[vKey] || null;\n  const termin = bacaTermin(bank ? bank.payment_terms : 'NET 30');\n\n  let status='', rute='', kodeTahan='', alasan='', diskon=0, bayarPada='';\n\n  const umurFaktur = hariAntara(String(f.processed_at||'').slice(0,10), hariIni);\n  const dalamJendelaDiskon = termin.diskonPct>0 && umurFaktur!==null && umurFaktur <= termin.diskonHari;\n  const hematJika = Math.round(jml * termin.diskonPct / 100);\n  const hariDipercepat = Math.max(0, termin.netHari - (umurFaktur||0));\n  const biayaKas = Math.round(jml * (biayaKasPct/100) * (hariDipercepat/365));\n  const diskonLayak = dalamJendelaDiskon && hematJika > biayaKas;\n\n  const hariSejakUbah = bank ? hariAntara(bank.changed_on, hariIni) : null;\n\n  if (!bank) {\n    status='held'; rute='ap_clerk'; kodeTahan='NO_BANK_DETAILS';\n    alasan='Tidak ada rekening terverifikasi untuk ' + vendor + '. Tidak ada tujuan transfer.';\n  } else if (bank.sanctions_flag === true) {\n    status='held'; rute='legal'; kodeTahan='SANCTIONS';\n    alasan=vendor + ' sedang ditahan: ' + (bank.notes || 'ditandai pada daftar tahan') + ' Legal harus melepas dulu.';\n  } else if (sudahDibayar[vKey + '|' + noFaktur]) {\n    const lama = sudahDibayar[vKey + '|' + noFaktur];\n    status='held'; rute='ap_supervisor'; kodeTahan='DUPLICATE';\n    alasan='Faktur ini sudah dibayar pada ' + String(lama.settled_on || lama.pay_on || 'run sebelumnya')\n      + ' (ref ' + String(lama.bank_ref||'-') + '). Membayarnya lagi tidak bisa ditarik kembali.';\n  } else if (hariSejakUbah !== null && hariSejakUbah <= HARI_REKENING_BARU) {\n    status='held'; rute='treasury'; kodeTahan='BANK_CHANGED';\n    alasan='Nomor rekening ' + vendor + ' berubah ' + hariSejakUbah + ' hari lalu lewat '\n      + String(bank.change_channel||'jalur tidak tercatat') + ' oleh ' + String(bank.changed_by||'tidak diketahui')\n      + '. Telepon vendor memakai nomor LAMA yang tersimpan, bukan kontak apa pun di pesan yang meminta perubahan.';\n  } else if (jml < MIN_BAYAR) {\n    status='held'; rute='ap_clerk'; kodeTahan='TOO_SMALL';\n    alasan='Nilainya ' + jml + ', di bawah ambang ' + MIN_BAYAR + '. Digabung ke run berikutnya.';\n  } else if (dipakai + jml > bolehPakai) {\n    status='held'; rute='treasury'; kodeTahan='CASH_SHORT';\n    alasan='Kas yang boleh dipakai ' + bolehPakai + ' (saldo ' + saldo + ' dikurangi cadangan ' + buffer\n      + '). Run ini sudah mengalokasikan ' + dipakai + ', sedangkan tagihan ini ' + jml + '. Ditunda, bukan ditolak.';\n  } else {\n    status='to_pay';\n    diskon = diskonLayak ? hematJika : 0;\n    bayarPada = hariIni;\n    dipakai = dipakai + (jml - diskon);\n    if (jml <= PLAFON_TANPA_SENTUH) rute='accounting_auto';\n    else if (jml <= PLAFON_MANAJER) rute='manager';\n    else if (jml <= PLAFON_DIREKTUR) rute='director';\n    else rute='dual_signature';\n  }\n\n  keluar.push({ json: {\n    line_key: 'RUN-' + String($execution.id||'manual') + '|' + vKey + '|' + noFaktur,\n    run_key: 'RUN-' + String($execution.id||'manual'),\n    vendor: vendor, invoice_number: noFaktur,\n    amount: jml, currency: String(f.currency||'IDR'),\n    status: status, route_to: rute, hold_code: kodeTahan, hold_reason: alasan,\n    account_number_masked: bank ? samar(bank.account_number) : '',\n    bank_name: bank ? String(bank.bank_name||'') : '',\n    account_name: bank ? String(bank.account_name||'') : '',\n    pay_on: bayarPada, discount_taken: diskon,\n    bank_ref: '', settled_on: '', reject_reason: '',\n    net_amount: jml - diskon,\n    payment_terms: termin.diskonPct>0 ? (termin.diskonPct + '/' + termin.diskonHari + ' NET ' + termin.netHari) : ('NET ' + termin.netHari),\n    diskon_tersedia: hematJika, diskon_layak: diskonLayak, biaya_kas: biayaKas,\n    umur_faktur_hari: umurFaktur,\n    butuh_tanda_tangan_ganda: rute === 'dual_signature',\n    akun_sumber: akun.account_code,\n    kas_boleh_dipakai: bolehPakai, kas_terpakai_sampai_baris_ini: dipakai,\n    execution_id: String($execution.id||'manual')\n  }});\n}\nreturn keluar;"
+        "jsCode": "/* Satu node memegang setiap aturan yang menentukan apakah uang keluar.\n   Urutannya disengaja dan penting:\n\n     1. rekening vendor tidak ada   - tidak bisa membayar ke ketiadaan\n     2. vendor ditahan (sanksi)     - halangan hukum, diperiksa sebelum urusan uang\n     3. sudah dibayar               - DUPLICATE: transfer tidak bisa ditarik kembali\n        atau sedang dibayar         - IN_FLIGHT: sudah di berkas bank yang belum dibalas\n     4. rekening baru berubah       - penipuan pengalihan pembayaran\n     5. belum disetujui             - atau disetujui orang yang kewenangannya kurang\n     6. nilai terlalu kecil         - biaya transfer melebihi manfaatnya\n     7. kas tidak cukup             - ini penjadwalan, bukan penolakan, jadi paling akhir\n\n   Nomor 4 diperiksa SEBELUM persetujuan, dengan sengaja: faktur yang masih\n   menunggu tanda tangan tetap ditandai bila rekening vendornya baru berubah,\n   supaya penyetuju tahu sebelum menandatangani - bukan sesudahnya.\n\n   Nomor 3 menghitung dua keadaan. Versi sebelumnya hanya menghitung yang sudah\n   LUNAS, sehingga menjalankan run dua kali sebelum bank membalas mengajukan\n   faktur yang sama di berkas kedua - pembayaran ganda dari satu klik.\n\n   Nomor 5 juga baru. Versi sebelumnya membayar faktur needs_approval seolah\n   sudah disetujui: pencocokan tiga arah yang bersih dianggap persetujuan,\n   padahal pencocokan hanya membuktikan fakturnya benar, bukan bahwa orang yang\n   berwenang sudah setuju membayarnya. */\n\nconst HARI_REKENING_BARU   = 14;\nconst PLAFON_TANPA_SENTUH  = 10000000;\nconst PLAFON_MANAJER       = 100000000;\nconst PLAFON_DIREKTUR      = 400000000;\nconst MIN_BAYAR            = 100000;\n\n/* Tingkat kewenangan penyetuju. Faktur yang dirutekan ke direktur tidak sah\n   disetujui manajer, meskipun kolom penyetujunya terisi. */\nconst TINGKAT = { manager: 1, director: 2 };\n\nfunction toNum(v){ if(v===null||v===undefined||v==='') return 0;\n  const n = Number(String(v).split(',').join('')); return isNaN(n)?0:n; }\nfunction hariAntara(a,b){ const x=Date.parse(a), y=Date.parse(b);\n  if(isNaN(x)||isNaN(y)) return null; return Math.round((y-x)/86400000); }\nfunction samar(no){ const s=String(no||''); return s.length<5 ? '****' : '******'+s.slice(-4); }\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\n\nconst hariIni = new Date().toISOString().slice(0,10);\nconst runIni = 'RUN-' + String($execution.id||'manual');\n\n/* --- master --- */\nconst bankVendor = {};\nfor (const it of $('Muat Rekening Vendor').all()) {\n  const r = it.json || {};\n  if (r.vendor) bankVendor[String(r.vendor).trim().toUpperCase()] = r;\n}\n\n/* Pembayaran terdahulu, dari baris yang benar-benar ada di tabel.\n   settled            = sudah lunas.\n   to_pay dari run LAIN = sudah masuk berkas bank, balasan banknya belum datang.\n   rejected sengaja tidak dihitung: transfer yang ditolak berarti vendor belum\n   dibayar, dan fakturnya memang harus bisa diajukan lagi. */\nconst akunArr = $('Muat Posisi Kas').all().map(function(i){ return i.json; })\n  .filter(function(a){ return a && a.account_code; });\nconst akun = akunArr[0] || { account_code:'(tidak ada)', balance:0, min_buffer:0, cost_of_cash_pct:0, currency:'IDR' };\nconst saldo = toNum(akun.balance);\nconst buffer = toNum(akun.min_buffer);\nconst saldoPer = String(akun.as_of||'').slice(0,10);\n\nconst sudahDibayar = {};\nconst sedangDibayar = {};\nlet dalamPerjalanan = 0;     /* di berkas bank, belum dibalas */\nlet lunasSetelahSaldo = 0;   /* lunas pada atau sesudah tanggal saldo dicatat */\nfor (const it of $('Muat Pembayaran Sebelumnya').all()) {\n  const r = it.json || {};\n  if (!r.vendor || !r.invoice_number) continue;\n  const kunci = String(r.vendor).trim().toUpperCase() + '|' + String(r.invoice_number).trim();\n  const st = String(r.status||'');\n  const bersih = toNum(r.amount) - toNum(r.discount_taken);\n  if (st === 'settled') {\n    sudahDibayar[kunci] = r;\n    if (saldoPer && String(r.settled_on||'').slice(0,10) >= saldoPer) lunasSetelahSaldo += bersih;\n  } else if (st === 'to_pay' && String(r.run_key||'') !== runIni) {\n    sedangDibayar[kunci] = r;\n    dalamPerjalanan += bersih;\n  }\n}\n\n/* Saldo di PAY Bank Accounts adalah potret pada tanggal as_of. Uang yang sudah\n   ada di berkas bank tapi belum dibalas, dan pembayaran yang lunas sejak potret\n   itu, belum tercermin di sana - keduanya dikurangkan. Tanpa itu, run kedua\n   menganggap uang run pertama masih bebas dan menjanjikannya dua kali.\n   Pembayaran yang lunas pada HARI YANG SAMA dengan potret ikut dikurangkan:\n   bisa jadi terhitung dua kali, tapi kesalahan ke arah itu hanya menunda\n   pembayaran, sedangkan kesalahan ke arah sebaliknya membuat rekening minus. */\nconst bolehPakai = Math.max(0, saldo - buffer - dalamPerjalanan - lunasSetelahSaldo);\nconst biayaKasPct = toNum(akun.cost_of_cash_pct);\n\n/* --- faktur dari buku besar AP --- */\n/* auto_approve dan needs_approval sama-sama lolos pencocokan tiga arah. Yang\n   needs_approval ikut dimuat bukan karena boleh dibayar, tapi supaya yang masih\n   menunggu tanda tangan TERCATAT beserta alasannya (kontrol nomor 5), bukan\n   hilang diam-diam dari run. */\nconst faktur = [];\nfor (const it of $('Muat Faktur Disetujui').all()) {\n  const r = it.json || {};\n  const d = String(r.decision||'');\n  if (d !== 'auto_approve' && d !== 'needs_approval') continue;\n  const jml = toNum(r.amount);\n  if (jml <= 0) continue;\n  faktur.push(r);\n}\n\nfunction persetujuan(f){\n  if (String(f.decision) === 'auto_approve')\n    return { sah:true, oleh:'pencocokan tiga arah, di bawah plafon tanpa sentuhan' };\n  const perlu = String(f.route_to||'manager');\n  const oleh = String(f.approved_by||'').trim();\n  const peran = String(f.approved_role||'').trim();\n  if (!oleh)\n    return { sah:false, alasan:'Belum disetujui. Pencocokan tiga arahnya bersih, tapi faktur ini masih menunggu persetujuan ' + perlu + '.' };\n  if ((TINGKAT[peran]||0) < (TINGKAT[perlu]||1))\n    return { sah:false, alasan:'Disetujui ' + oleh + ' sebagai ' + (peran||'peran tidak tercatat') + ', padahal faktur ini butuh persetujuan ' + perlu + '. Persetujuan dari kewenangan yang kurang tidak dihitung.' };\n  return { sah:true, oleh: oleh + ' (' + peran + (f.approved_on ? ', ' + String(f.approved_on).slice(0,10) : '') + ')' };\n}\n\n/* Diskon bayar-awal hanya diambil kalau memang menguntungkan. \"2/10 NET 30\"\n   berarti hemat 2% bila dibayar 20 hari lebih cepat; itu setara bunga tahunan\n   sekitar 36%, jauh di atas biaya kas 12%, jadi layak diambil. Membandingkan\n   keduanya - bukan sekadar melihat ada diskon - adalah bedanya bendahara yang\n   berhitung dengan yang sekadar cepat membayar. */\nfunction bacaTermin(teks){\n  const t = String(teks||'NET 30').toUpperCase();\n  const net = (t.match(/NET\\s*(\\d+)/)||[])[1];\n  const disk = t.match(/(\\d+(?:\\.\\d+)?)\\s*\\/\\s*(\\d+)/);\n  return { netHari: net?parseInt(net,10):30,\n           diskonPct: disk?parseFloat(disk[1]):0,\n           diskonHari: disk?parseInt(disk[2],10):0 };\n}\n\nconst keluar = [];\nlet dipakai = 0;\nconst sudahDinilai = {};\n\n/* Urutan pembayaran: yang menghasilkan diskon dulu (itu uang nyata yang hilang\n   kalau lewat tanggal), lalu yang paling tua. */\nfaktur.sort(function(a,b){\n  const ta = bacaTermin((bankVendor[String(a.vendor||'').trim().toUpperCase()]||{}).payment_terms);\n  const tb = bacaTermin((bankVendor[String(b.vendor||'').trim().toUpperCase()]||{}).payment_terms);\n  if ((tb.diskonPct>0) !== (ta.diskonPct>0)) return tb.diskonPct>0 ? 1 : -1;\n  return String(a.processed_at||'').localeCompare(String(b.processed_at||''));\n});\n\nfor (const f of faktur) {\n  const vendor = String(f.vendor||'').trim();\n  const vKey = vendor.toUpperCase();\n  const noFaktur = String(f.invoice_number||'').trim();\n  const kunci = vKey + '|' + noFaktur;\n  const jml = toNum(f.amount);\n  const bank = bankVendor[vKey] || null;\n  const termin = bacaTermin(bank ? bank.payment_terms : 'NET 30');\n  const setuju = persetujuan(f);\n\n  let status='', rute='', kodeTahan='', alasan='', diskon=0, bayarPada='';\n\n  const umurFaktur = hariAntara(String(f.processed_at||'').slice(0,10), hariIni);\n  const dalamJendelaDiskon = termin.diskonPct>0 && umurFaktur!==null && umurFaktur <= termin.diskonHari;\n  const hematJika = Math.round(jml * termin.diskonPct / 100);\n  const hariDipercepat = Math.max(0, termin.netHari - (umurFaktur||0));\n  const biayaKas = Math.round(jml * (biayaKasPct/100) * (hariDipercepat/365));\n  const diskonLayak = dalamJendelaDiskon && hematJika > biayaKas;\n\n  const hariSejakUbah = bank ? hariAntara(bank.changed_on, hariIni) : null;\n\n  if (!bank) {\n    status='held'; rute='ap_clerk'; kodeTahan='NO_BANK_DETAILS';\n    alasan='Tidak ada rekening terverifikasi untuk ' + vendor + '. Tidak ada tujuan transfer.';\n  } else if (bank.sanctions_flag === true) {\n    status='held'; rute='legal'; kodeTahan='SANCTIONS';\n    alasan=vendor + ' sedang ditahan: ' + (bank.notes || 'ditandai pada daftar tahan') + ' Legal harus melepas dulu.';\n  } else if (sudahDibayar[kunci]) {\n    const lama = sudahDibayar[kunci];\n    status='held'; rute='ap_supervisor'; kodeTahan='DUPLICATE';\n    alasan='Faktur ini sudah dibayar pada ' + String(lama.settled_on || lama.pay_on || 'run sebelumnya')\n      + ' (ref ' + String(lama.bank_ref||'-') + '). Membayarnya lagi tidak bisa ditarik kembali.';\n  } else if (sedangDibayar[kunci] || sudahDinilai[kunci]) {\n    const lama = sedangDibayar[kunci];\n    status='held'; rute='treasury'; kodeTahan='IN_FLIGHT';\n    alasan = lama\n      ? 'Faktur ini sudah ada di berkas bank ' + String(lama.run_key||'-') + ' (' + String(lama.pay_on||'-')\n        + ') dan balasan banknya belum masuk. Mengajukannya lagi sekarang berarti membayar dua kali bila berkas pertama lunas. '\n        + 'Kalau bank menolaknya, faktur ini diajukan lagi dengan sendirinya di run berikutnya.'\n      : 'Faktur yang sama muncul lebih dari sekali di buku besar AP pada run ini. Hanya yang pertama dinilai.';\n  } else if (hariSejakUbah !== null && hariSejakUbah <= HARI_REKENING_BARU) {\n    status='held'; rute='treasury'; kodeTahan='BANK_CHANGED';\n    alasan='Nomor rekening ' + vendor + ' berubah ' + hariSejakUbah + ' hari lalu lewat '\n      + String(bank.change_channel||'jalur tidak tercatat') + ' oleh ' + String(bank.changed_by||'tidak diketahui')\n      + '. Telepon vendor memakai nomor LAMA yang tersimpan, bukan kontak apa pun di pesan yang meminta perubahan.';\n  } else if (!setuju.sah) {\n    status='held'; rute=String(f.route_to||'manager'); kodeTahan='AWAITING_APPROVAL';\n    alasan=setuju.alasan;\n  } else if (jml < MIN_BAYAR) {\n    status='held'; rute='ap_clerk'; kodeTahan='TOO_SMALL';\n    alasan='Nilainya ' + rp(jml) + ', di bawah ambang ' + rp(MIN_BAYAR) + ' - biaya transfer melebihi manfaatnya. '\n      + 'Tidak ada yang menggabungkannya otomatis: AP clerk yang memutuskan kapan dibayar.';\n  } else if (dipakai + jml > bolehPakai) {\n    status='held'; rute='treasury'; kodeTahan='CASH_SHORT';\n    alasan='Kas yang boleh dipakai ' + rp(bolehPakai) + ' (saldo ' + rp(saldo) + ' dikurangi cadangan ' + rp(buffer)\n      + (dalamPerjalanan ? ', dikurangi ' + rp(dalamPerjalanan) + ' yang sudah di berkas bank tapi belum dibalas' : '')\n      + (lunasSetelahSaldo ? ', dikurangi ' + rp(lunasSetelahSaldo) + ' yang lunas sejak saldo dicatat' : '')\n      + '). Run ini sudah mengalokasikan ' + rp(dipakai) + ', sedangkan tagihan ini ' + rp(jml) + '. Ditunda, bukan ditolak.';\n  } else {\n    status='to_pay';\n    diskon = diskonLayak ? hematJika : 0;\n    bayarPada = hariIni;\n    dipakai = dipakai + (jml - diskon);\n    if (jml <= PLAFON_TANPA_SENTUH) rute='accounting_auto';\n    else if (jml <= PLAFON_MANAJER) rute='manager';\n    else if (jml <= PLAFON_DIREKTUR) rute='director';\n    else rute='dual_signature';\n  }\n  sudahDinilai[kunci] = true;\n\n  keluar.push({ json: {\n    line_key: runIni + '|' + vKey + '|' + noFaktur,\n    run_key: runIni,\n    vendor: vendor, invoice_number: noFaktur,\n    amount: jml, currency: String(f.currency||'IDR'),\n    status: status, route_to: rute, hold_code: kodeTahan, hold_reason: alasan,\n    account_number_masked: bank ? samar(bank.account_number) : '',\n    bank_name: bank ? String(bank.bank_name||'') : '',\n    account_name: bank ? String(bank.account_name||'') : '',\n    pay_on: bayarPada, discount_taken: diskon,\n    bank_ref: '', settled_on: '', reject_reason: '',\n    net_amount: jml - diskon,\n    payment_terms: termin.diskonPct>0 ? (termin.diskonPct + '/' + termin.diskonHari + ' NET ' + termin.netHari) : ('NET ' + termin.netHari),\n    diskon_tersedia: hematJika, diskon_layak: diskonLayak, biaya_kas: biayaKas,\n    umur_faktur_hari: umurFaktur,\n    disetujui_oleh: setuju.sah ? setuju.oleh : '',\n    butuh_tanda_tangan_ganda: rute === 'dual_signature',\n    akun_sumber: akun.account_code,\n    kas_boleh_dipakai: bolehPakai, kas_terpakai_sampai_baris_ini: dipakai,\n    execution_id: String($execution.id||'manual')\n  }});\n}\nreturn keluar;"
       }
     },
     {
       "id": "sw1",
       "name": "Arahkan per Keputusan",
-      "notes": "Empat keluaran: bayar, tahan penipuan, tahan kas, dan sisanya (ganda, sanksi, tanpa rekening, terlalu kecil). Cabang penipuan dipisah karena penanganannya berbeda: bukan antrian, tapi telepon.",
+      "notes": "Empat keluaran: bayar, tahan penipuan, tahan kas, dan sisanya (sanksi, sudah atau sedang dibayar, belum disetujui, tanpa rekening, terlalu kecil). Cabang penipuan dipisah karena penanganannya berbeda: bukan antrean, tapi telepon.",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
@@ -364,6 +364,7 @@
     {
       "id": "d1",
       "name": "Slack: Peringatan Penipuan",
+      "webhookId": "93e6bb6b-c26e-4e53-b163-abb5b187fa21",
       "disabled": true,
       "notes": "DIMATIKAN. Tinggal pasang kredensial Slack dan pilih channel. Isi pesannya sudah disusun di node sebelumnya, jadi menyalakannya tidak mengubah logika apa pun.",
       "type": "n8n-nodes-base.slack",
@@ -381,12 +382,12 @@
         },
         "text": "={{ $json.peringatan }}",
         "otherOptions": {}
-      },
-      "webhookId": "93e6bb6b-c26e-4e53-b163-abb5b187fa21"
+      }
     },
     {
       "id": "d2",
       "name": "Gmail: Nasihat Pengiriman ke Vendor",
+      "webhookId": "b446fc64-0a9b-4808-8d16-1d09e2781d54",
       "disabled": true,
       "notes": "DIMATIKAN. sendTo masih berisi nama vendor, bukan alamat email — tabel PAY Vendor Bank Details belum menyimpan email. Tambahkan kolomnya dulu sebelum menyalakan node ini.",
       "type": "n8n-nodes-base.gmail",
@@ -400,8 +401,7 @@
         "subject": "=Pembayaran faktur {{ $json.invoice_number }}",
         "message": "={{ $json.remittance }}",
         "options": {}
-      },
-      "webhookId": "b446fc64-0a9b-4808-8d16-1d09e2781d54"
+      }
     },
     {
       "id": "m1",
@@ -465,7 +465,7 @@
     {
       "id": "c16",
       "name": "Bangun Berkas Bank",
-      "notes": "Total kendali dan checksum bukan hiasan: bank menolak berkas yang jumlahnya tidak cocok, dan itulah yang menghentikan satu baris terselip di tengah jalan.",
+      "notes": "Total kendali dan checksum bukan hiasan: bank menolak berkas yang jumlahnya tidak cocok. Hanya baris yang benar-benar tersimpan di tabel yang masuk berkas - pembayaran yang tidak tercatat tidak terlihat oleh penjaga pembayaran ganda di run berikutnya.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "executeOnce": true,
@@ -476,7 +476,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Berkas instruksi bank. Yang membuatnya berarti bukan formatnya, tapi total\n   kendali dan checksum-nya: bank menolak berkas yang jumlahnya tidak cocok,\n   dan itulah yang menghentikan satu baris terselip atau berubah di tengah jalan.\n   Berkas tanpa total kendali hanya terlihat seperti berkas. */\nconst semua = $('Kumpulkan Semua Baris').all().map(function(i){ return i.json; });\nconst bayar = semua.filter(function(r){ return r.status === 'to_pay'; });\n\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\n\nconst baris = bayar.map(function(r, i){\n  return [ String(i+1).padStart(4,'0'), r.vendor, r.account_number_masked,\n           r.bank_name, String(r.net_amount), r.currency, r.invoice_number ].join(',');\n});\nconst total = bayar.reduce(function(s,r){ return s + Number(r.net_amount||0); }, 0);\n\n/* Checksum sederhana yang dapat dihitung ulang siapa pun dari isi berkas.\n   Bukan kriptografi - tugasnya cuma membuktikan berkas tidak berubah sejak dibuat. */\nlet sum = 0;\nconst isi = baris.join('\\n');\nfor (let i = 0; i < isi.length; i++) { sum = (sum * 31 + isi.charCodeAt(i)) % 2147483647; }\n\nconst kepala = 'HDR,' + String($execution.id||'manual') + ',' + new Date().toISOString().slice(0,10)\n  + ',' + bayar.length + ',' + total;\nconst kaki = 'TRL,' + bayar.length + ',' + total + ',' + sum;\n\nreturn [{ json: {\n  run_key: 'RUN-' + String($execution.id||'manual'),\n  jumlah_baris: bayar.length,\n  control_total: total,\n  file_checksum: String(sum),\n  nama_berkas: 'PAYRUN-' + String($execution.id||'manual') + '.csv',\n  isi_berkas: [kepala].concat(baris).concat([kaki]).join('\\n'),\n  ringkas_teks: bayar.length + ' baris, total ' + rp(total) + ' IDR, checksum ' + sum\n}}];"
+        "jsCode": "/* Berkas instruksi bank. Yang membuatnya berarti bukan formatnya, tapi total\n   kendali dan checksum-nya: bank menolak berkas yang jumlahnya tidak cocok,\n   dan itulah yang menghentikan satu baris terselip atau berubah di tengah jalan.\n   Berkas tanpa total kendali hanya terlihat seperti berkas.\n\n   Hanya baris yang BENAR-BENAR tersimpan di tabel yang masuk berkas. Versi\n   sebelumnya membangun berkas dari keputusan mesin: baris yang gagal tersimpan\n   tetap dibayar, lalu tidak terlihat oleh penjaga pembayaran ganda di run\n   berikutnya - dan dibayar lagi. */\nconst tersimpan = {};\ntry {\n  for (const it of $('Tulis Baris Pembayaran').all()) {\n    const r = it.json || {};\n    if (r.id !== undefined && r.id !== null && r.line_key) tersimpan[r.line_key] = true;\n  }\n} catch (e) {}\n\nconst semua = $('Kumpulkan Semua Baris').all().map(function(i){ return i.json; });\nconst diputuskan = semua.filter(function(r){ return r.status === 'to_pay'; });\nconst bayar = diputuskan.filter(function(r){ return tersimpan[r.line_key]; });\n\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\n\nconst baris = bayar.map(function(r, i){\n  return [ String(i+1).padStart(4,'0'), r.vendor, r.account_number_masked,\n           r.bank_name, String(r.net_amount), r.currency, r.invoice_number ].join(',');\n});\nconst total = bayar.reduce(function(s,r){ return s + Number(r.net_amount||0); }, 0);\n\n/* Checksum sederhana yang dapat dihitung ulang siapa pun dari isi berkas.\n   Bukan kriptografi - tugasnya cuma membuktikan berkas tidak berubah sejak dibuat. */\nlet sum = 0;\nconst isi = baris.join('\\n');\nfor (let i = 0; i < isi.length; i++) { sum = (sum * 31 + isi.charCodeAt(i)) % 2147483647; }\n\nconst kepala = 'HDR,' + String($execution.id||'manual') + ',' + new Date().toISOString().slice(0,10)\n  + ',' + bayar.length + ',' + total;\nconst kaki = 'TRL,' + bayar.length + ',' + total + ',' + sum;\n\nreturn [{ json: {\n  run_key: 'RUN-' + String($execution.id||'manual'),\n  jumlah_baris: bayar.length,\n  control_total: total,\n  file_checksum: String(sum),\n  bayar_tidak_tersimpan: diputuskan.length - bayar.length,\n  nama_berkas: 'PAYRUN-' + String($execution.id||'manual') + '.csv',\n  isi_berkas: [kepala].concat(baris).concat([kaki]).join('\\n'),\n  ringkas_teks: bayar.length + ' baris, total ' + rp(total) + ' IDR, checksum ' + sum\n}}];"
       }
     },
     {
@@ -502,7 +502,7 @@
     {
       "id": "c18",
       "name": "Ringkas Run",
-      "notes": "Angkanya dihitung dari baris yang dikembalikan tabel, bukan dari niat mesin proposal.",
+      "notes": "Dibayar dan tertahan dihitung dari keputusan mesin; \"Baris tersimpan\" dari baris yang dikembalikan tabel. Kalau keduanya berbeda, laporan menyebutnya.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "executeOnce": true,
@@ -513,12 +513,13 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Angka di laporan ini dihitung dari baris yang BENAR-BENAR dikembalikan tabel,\n   bukan dari niat mesin proposal. Laporan yang menghitung niat akan melaporkan\n   pembayaran yang tidak pernah tersimpan. */\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\n\nlet tertulis = [];\ntry { tertulis = $('Tulis Baris Pembayaran').all().map(function(i){ return i.json; })\n       .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { tertulis = []; }\n\nconst diminta = $('Kumpulkan Semua Baris').all().map(function(i){ return i.json; });\nconst berkas = $('Bangun Berkas Bank').first().json;\n\nconst bayar  = diminta.filter(function(r){ return r.status==='to_pay'; });\nconst tahan  = diminta.filter(function(r){ return r.status==='held'; });\nconst ganda  = tahan.filter(function(r){ return r.hold_code==='DUPLICATE'; });\nconst tipu   = tahan.filter(function(r){ return r.hold_code==='BANK_CHANGED'; });\nconst sanksi = tahan.filter(function(r){ return r.hold_code==='SANCTIONS'; });\nconst kas    = tahan.filter(function(r){ return r.hold_code==='CASH_SHORT'; });\nconst ttd2   = bayar.filter(function(r){ return r.butuh_tanda_tangan_ganda; });\n\nfunction jum(a,f){ return a.reduce(function(s,r){ return s + Number(r[f]||0); }, 0); }\n\nconst akunKode = (diminta[0]||{}).akun_sumber || '-';\nconst bolehPakai = Number((diminta[0]||{}).kas_boleh_dipakai || 0);\nconst nilaiBayar = jum(bayar,'net_amount');\nconst diskon = jum(bayar,'discount_taken');\n\nconst perKode = {};\nfor (const r of tahan) {\n  const k = r.hold_code || 'LAIN';\n  if (!perKode[k]) perKode[k] = { kode:k, jumlah:0, nilai:0, pemilik:{} };\n  perKode[k].jumlah++; perKode[k].nilai += Number(r.amount||0);\n  perKode[k].pemilik[r.route_to||'-'] = true;\n}\n\nreturn [{ json: {\n  run_key: 'RUN-' + String($execution.id||'manual'),\n  run_date: new Date().toISOString().slice(0,10),\n  status: 'file_built',\n  lines_total: diminta.length,\n  lines_paid: bayar.length,\n  lines_held: tahan.length,\n  value_paid: nilaiBayar,\n  value_held: jum(tahan,'amount'),\n  control_total: Number(berkas.control_total||0),\n  file_checksum: String(berkas.file_checksum||''),\n  account_code: akunKode,\n  balance_before: bolehPakai,\n  balance_after: bolehPakai - nilaiBayar,\n  settled_count: 0,\n  rejected_count: 0,\n  execution_id: String($execution.id||'manual'),\n\n  baris_tertulis: tertulis.length,\n  baris_tidak_tertulis: diminta.length - tertulis.length,\n  diskon_diambil: diskon,\n  butuh_ttd_ganda: ttd2.length,\n  tahan_ganda: ganda.length, tahan_penipuan: tipu.length,\n  tahan_sanksi: sanksi.length, tahan_kas: kas.length,\n  rincian_tahan: Object.keys(perKode).map(function(k){\n    return { kode:k, jumlah:perKode[k].jumlah, nilai:perKode[k].nilai,\n             pemilik:Object.keys(perKode[k].pemilik).join(', ') };\n  }).sort(function(a,b){ return b.nilai - a.nilai; }),\n  daftar_tahan: tahan.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, nilai:r.amount,\n             kode:r.hold_code, pemilik:r.route_to, alasan:r.hold_reason };\n  }),\n  daftar_bayar: bayar.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, bruto:r.amount,\n             diskon:r.discount_taken, bersih:r.net_amount, rute:r.route_to,\n             rekening:r.account_number_masked };\n  })\n}}];"
+        "jsCode": "/* Dua jenis angka, sengaja dibedakan:\n   - dibayar, tertahan, dan diskon dihitung dari keputusan mesin, sebelum ditulis;\n   - \"Baris tersimpan\" dihitung dari baris yang BENAR-BENAR dikembalikan tabel,\n     dan berkas bank hanya memuat baris yang tersimpan (lihat Bangun Berkas Bank).\n   Kalau keduanya berbeda, laporan menyebutnya: itu tanda ada pembayaran yang\n   diputuskan tapi tidak tercatat, dan karena itu tidak ikut dikirim. */\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\n\nlet tertulis = [];\ntry { tertulis = $('Tulis Baris Pembayaran').all().map(function(i){ return i.json; })\n       .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { tertulis = []; }\n\nconst diminta = $('Kumpulkan Semua Baris').all().map(function(i){ return i.json; });\nconst berkas = $('Bangun Berkas Bank').first().json;\n\nconst bayar  = diminta.filter(function(r){ return r.status==='to_pay'; });\nconst tahan  = diminta.filter(function(r){ return r.status==='held'; });\nconst ganda  = tahan.filter(function(r){ return r.hold_code==='DUPLICATE'; });\nconst tipu   = tahan.filter(function(r){ return r.hold_code==='BANK_CHANGED'; });\nconst sanksi = tahan.filter(function(r){ return r.hold_code==='SANCTIONS'; });\nconst kas    = tahan.filter(function(r){ return r.hold_code==='CASH_SHORT'; });\nconst ttd2   = bayar.filter(function(r){ return r.butuh_tanda_tangan_ganda; });\n\nfunction jum(a,f){ return a.reduce(function(s,r){ return s + Number(r[f]||0); }, 0); }\n\nconst akunKode = (diminta[0]||{}).akun_sumber || '-';\nconst bolehPakai = Number((diminta[0]||{}).kas_boleh_dipakai || 0);\nconst nilaiBayar = jum(bayar,'net_amount');\nconst diskon = jum(bayar,'discount_taken');\n\nconst perKode = {};\nfor (const r of tahan) {\n  const k = r.hold_code || 'LAIN';\n  if (!perKode[k]) perKode[k] = { kode:k, jumlah:0, nilai:0, pemilik:{} };\n  perKode[k].jumlah++; perKode[k].nilai += Number(r.amount||0);\n  perKode[k].pemilik[r.route_to||'-'] = true;\n}\n\nreturn [{ json: {\n  run_key: 'RUN-' + String($execution.id||'manual'),\n  run_date: new Date().toISOString().slice(0,10),\n  status: 'file_built',\n  lines_total: diminta.length,\n  lines_paid: bayar.length,\n  lines_held: tahan.length,\n  value_paid: nilaiBayar,\n  value_held: jum(tahan,'amount'),\n  control_total: Number(berkas.control_total||0),\n  file_checksum: String(berkas.file_checksum||''),\n  account_code: akunKode,\n  balance_before: bolehPakai,\n  balance_after: bolehPakai - nilaiBayar,\n  settled_count: 0,\n  rejected_count: 0,\n  execution_id: String($execution.id||'manual'),\n\n  baris_tertulis: tertulis.length,\n  baris_tidak_tertulis: diminta.length - tertulis.length,\n  diskon_diambil: diskon,\n  butuh_ttd_ganda: ttd2.length,\n  tahan_ganda: ganda.length, tahan_penipuan: tipu.length,\n  tahan_sanksi: sanksi.length, tahan_kas: kas.length,\n  rincian_tahan: Object.keys(perKode).map(function(k){\n    return { kode:k, jumlah:perKode[k].jumlah, nilai:perKode[k].nilai,\n             pemilik:Object.keys(perKode[k].pemilik).join(', ') };\n  }).sort(function(a,b){ return b.nilai - a.nilai; }),\n  daftar_tahan: tahan.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, nilai:r.amount,\n             kode:r.hold_code, pemilik:r.route_to, alasan:r.hold_reason };\n  }),\n  daftar_bayar: bayar.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, bruto:r.amount,\n             diskon:r.discount_taken, bersih:r.net_amount, rute:r.route_to,\n             rekening:r.account_number_masked };\n  })\n}}];"
       }
     },
     {
       "id": "w2",
       "name": "Tulis Header Run",
+      "notes": "Kolom ditulis satu per satu, bukan autoMapInputData. Node ringkasan juga mengeluarkan larik untuk laporan (daftar_tahan, rincian_tahan), dan tabel hanya menerima nilai tunggal - auto-map mencoba menulis larik itu dan seluruh run gagal.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
@@ -558,12 +559,12 @@
           }
         },
         "options": {}
-      },
-      "notes": "Kolom ditulis satu per satu, bukan autoMapInputData. Node ringkasan juga mengeluarkan larik untuk laporan (daftar_tahan, rincian_tahan), dan tabel hanya menerima nilai tunggal - auto-map mencoba menulis larik itu dan seluruh run gagal."
+      }
     },
     {
       "id": "s20",
       "name": "Format Laporan Treasury",
+      "notes": "Dibaca langsung dari Ringkas Run, bukan dari keluaran Tulis Header Run. Node tabel hanya mengembalikan 16 kolom yang dipetakan, sehingga daftar_tahan, daftar_bayar dan baris_tertulis hilang - laporan lalu mencetak bagian yang kosong tanpa ada yang error.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
@@ -586,18 +587,18 @@
             {
               "id": "f1",
               "name": "laporan",
-              "value": "=*Run Pembayaran {{ $json.run_key }}* · {{ $json.run_date }}\nRekening sumber {{ $json.account_code }} · boleh dipakai {{ $json.balance_before.toLocaleString(\"id-ID\") }} IDR\n\nDibayar   : {{ $json.lines_paid }} baris · {{ $json.value_paid.toLocaleString(\"id-ID\") }} IDR\nTertahan  : {{ $json.lines_held }} baris · {{ $json.value_held.toLocaleString(\"id-ID\") }} IDR\nSisa kas  : {{ $json.balance_after.toLocaleString(\"id-ID\") }} IDR\n{{ $json.diskon_diambil > 0 ? \"Diskon bayar-awal diambil: \" + $json.diskon_diambil.toLocaleString(\"id-ID\") + \" IDR\\n\" : \"\" }}{{ $json.butuh_ttd_ganda > 0 ? \"Butuh dua tanda tangan: \" + $json.butuh_ttd_ganda + \" baris\\n\" : \"\" }}\nBerkas bank: {{ $json.control_total.toLocaleString(\"id-ID\") }} IDR, checksum {{ $json.file_checksum }}\nBaris tersimpan: {{ $json.baris_tertulis }} dari {{ $json.lines_total }}{{ $json.baris_tidak_tertulis > 0 ? \" — \" + $json.baris_tidak_tertulis + \" TIDAK TERSIMPAN, periksa sebelum melepas pembayaran\" : \"\" }}\n\nTertahan, dan siapa pemiliknya:\n{{ $json.daftar_tahan.length ? $json.daftar_tahan.map(h => \"- [\" + h.kode + \"] \" + h.vendor + \" \" + h.faktur + \" · \" + h.nilai.toLocaleString(\"id-ID\") + \" → \" + h.pemilik + \"\\n  \" + h.alasan).join(\"\\n\") : \"Tidak ada yang tertahan.\" }}\n\nDibayar:\n{{ $json.daftar_bayar.length ? $json.daftar_bayar.map(b => \"- \" + b.vendor + \" \" + b.faktur + \" · bersih \" + b.bersih.toLocaleString(\"id-ID\") + (b.diskon ? \" (diskon \" + b.diskon.toLocaleString(\"id-ID\") + \")\" : \"\") + \" → \" + b.rute).join(\"\\n\") : \"Tidak ada pembayaran pada run ini.\" }}",
+              "value": "=*Run Pembayaran {{ $json.run_key }}* · {{ $json.run_date }}\nRekening sumber {{ $json.account_code }} · boleh dipakai {{ $json.balance_before.toLocaleString(\"id-ID\") }} IDR\n\nDibayar   : {{ $json.lines_paid }} baris · {{ $json.value_paid.toLocaleString(\"id-ID\") }} IDR\nTertahan  : {{ $json.lines_held }} baris · {{ $json.value_held.toLocaleString(\"id-ID\") }} IDR\nSisa kas  : {{ $json.balance_after.toLocaleString(\"id-ID\") }} IDR\n{{ $json.diskon_diambil > 0 ? \"Diskon bayar-awal diambil: \" + $json.diskon_diambil.toLocaleString(\"id-ID\") + \" IDR\\n\" : \"\" }}{{ $json.butuh_ttd_ganda > 0 ? \"Butuh dua tanda tangan: \" + $json.butuh_ttd_ganda + \" baris\\n\" : \"\" }}\nBerkas bank: {{ $json.control_total.toLocaleString(\"id-ID\") }} IDR, checksum {{ $json.file_checksum }}\nBaris tersimpan: {{ $json.baris_tertulis }} dari {{ $json.lines_total }}{{ $json.baris_tidak_tertulis > 0 ? \" — \" + $json.baris_tidak_tertulis + \" TIDAK TERSIMPAN dan tidak dimasukkan ke berkas bank\" : \"\" }}\n\nTertahan, dan siapa pemiliknya:\n{{ $json.daftar_tahan.length ? $json.daftar_tahan.map(h => \"- [\" + h.kode + \"] \" + h.vendor + \" \" + h.faktur + \" · \" + h.nilai.toLocaleString(\"id-ID\") + \" → \" + h.pemilik + \"\\n  \" + h.alasan).join(\"\\n\") : \"Tidak ada yang tertahan.\" }}\n\nDibayar:\n{{ $json.daftar_bayar.length ? $json.daftar_bayar.map(b => \"- \" + b.vendor + \" \" + b.faktur + \" · bersih \" + b.bersih.toLocaleString(\"id-ID\") + (b.diskon ? \" (diskon \" + b.diskon.toLocaleString(\"id-ID\") + \")\" : \"\") + \" → \" + b.rute).join(\"\\n\") : \"Tidak ada pembayaran pada run ini.\" }}",
               "type": "string"
             }
           ]
         },
         "options": {}
-      },
-      "notes": "Dibaca langsung dari Ringkas Run, bukan dari keluaran Tulis Header Run. Node tabel hanya mengembalikan 16 kolom yang dipetakan, sehingga daftar_tahan, daftar_bayar dan baris_tertulis hilang - laporan lalu mencetak bagian yang kosong tanpa ada yang error."
+      }
     },
     {
       "id": "d4",
       "name": "Gmail: Laporan Treasury",
+      "webhookId": "7559077d-fd94-498f-9a9e-5a8979124bbc",
       "disabled": true,
       "notes": "DIMATIKAN.",
       "type": "n8n-nodes-base.gmail",
@@ -611,8 +612,7 @@
         "subject": "={{ $json.judul }}",
         "message": "={{ $json.laporan }}",
         "options": {}
-      },
-      "webhookId": "7559077d-fd94-498f-9a9e-5a8979124bbc"
+      }
     },
     {
       "id": "t3",
@@ -638,22 +638,23 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        240,
+        460,
         760
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Bank membalas setelah berkas diproses. Sebagian baris lunas, sebagian\n   ditolak - rekening tutup, nama tidak cocok, dana kurang. Balasan ini harus\n   dibaca kembali, kalau tidak catatan kita mengklaim semuanya terbayar padahal\n   tidak. Inilah bagian yang paling sering hilang dari otomasi pembayaran. */\nconst masuk = $input.all().map(function(i){ return i.json; });\nconst badan = (masuk[0] && (masuk[0].body || masuk[0])) || {};\nconst runKey = String(badan.run_key || '');\nconst hasil = Array.isArray(badan.results) ? badan.results : [];\n\nif (!runKey || !hasil.length) {\n  return [{ json: { _kosong: true, run_key: runKey,\n    pesan: 'Balasan bank tidak memuat run_key atau daftar results.' } }];\n}\n\nreturn hasil.map(function(r){\n  const st = String(r.status||'').toLowerCase();\n  const lunas = st === 'settled' || st === 'paid' || st === 'ok';\n  return { json: {\n    run_key: runKey,\n    vendor: String(r.vendor||''),\n    invoice_number: String(r.invoice_number||''),\n    line_key: runKey + '|' + String(r.vendor||'').trim().toUpperCase() + '|' + String(r.invoice_number||'').trim(),\n    bank_ref: String(r.bank_ref||''),\n    hasil_bank: lunas ? 'settled' : 'rejected',\n    reject_reason: lunas ? '' : String(r.reason || 'ditolak bank tanpa alasan tertulis'),\n    settled_on: lunas ? new Date().toISOString().slice(0,10) : '',\n    amount: Number(r.amount||0)\n  }};\n});"
+        "jsCode": "/* Bank membalas setelah berkas diproses. Sebagian baris lunas, sebagian\n   ditolak - rekening tutup, nama tidak cocok, dana kurang. Balasan ini harus\n   dibaca kembali, kalau tidak catatan kita mengklaim semuanya terbayar padahal\n   tidak. Inilah bagian yang paling sering hilang dari otomasi pembayaran.\n\n   Setiap balasan dicocokkan dengan baris yang BENAR-BENAR ada di berkas run itu.\n   Versi sebelumnya menulis balasan apa pun lewat upsert: balasan untuk baris yang\n   tidak pernah dikirim menciptakan baris pembayaran \"lunas\" yang tidak pernah ada,\n   dan baris palsu itu dibaca penjaga pembayaran ganda sebagai bukti faktur sudah\n   dibayar. Balasan seperti itu kini ditandai tidak_dikenal dan tidak ditulis. */\nconst webhook = $('Balasan Bank (Webhook)').first().json || {};\nconst badan = webhook.body || webhook;\nconst runKey = String(badan.run_key || '').trim();\nconst hasil = Array.isArray(badan.results) ? badan.results : [];\nconst hariIni = new Date().toISOString().slice(0,10);\n\nconst barisRun = $('Muat Baris Terkirim').all().map(function(i){ return i.json; })\n  .filter(function(r){ return r && r.line_key && String(r.run_key||'') === runKey; });\nconst perKunci = {};\nfor (const r of barisRun) perKunci[r.line_key] = r;\n/* Baris yang masuk berkas: semua kecuali yang ditahan. */\nconst diBerkas = barisRun.filter(function(r){ return String(r.status) !== 'held'; });\n\nif (!runKey || !hasil.length) {\n  return [{ json: { _kosong: true, run_key: runKey, hasil_bank: 'tidak_dikenal',\n    pesan: 'Balasan bank tidak memuat run_key atau daftar results. Tidak ada yang ditulis.',\n    di_berkas: diBerkas.length, tak_dibalas: [] } }];\n}\n\nconst dibalas = {};\nconst keluar = hasil.map(function(r){\n  const st = String(r.status||'').toLowerCase();\n  const lunas = st === 'settled' || st === 'paid' || st === 'ok';\n  const vendor = String(r.vendor||'').trim();\n  const noFaktur = String(r.invoice_number||'').trim();\n  const lineKey = runKey + '|' + vendor.toUpperCase() + '|' + noFaktur;\n  const baris = perKunci[lineKey];\n  const dikenal = !!baris && String(baris.status) !== 'held';\n  if (dikenal) dibalas[lineKey] = true;\n  return { json: {\n    run_key: runKey, vendor: vendor, invoice_number: noFaktur, line_key: lineKey,\n    bank_ref: String(r.bank_ref||''),\n    hasil_bank: !dikenal ? 'tidak_dikenal' : (lunas ? 'settled' : 'rejected'),\n    reject_reason: dikenal && !lunas ? String(r.reason || 'ditolak bank tanpa alasan tertulis') : '',\n    settled_on: dikenal && lunas ? hariIni : '',\n    amount: Number(r.amount||0),\n    nilai_dikirim: baris ? Number(baris.amount||0) - Number(baris.discount_taken||0) : 0,\n    alasan_tidak_dikenal: !baris\n      ? 'Tidak ada baris ' + noFaktur + ' untuk ' + vendor + ' di ' + runKey + '.'\n      : (String(baris.status) === 'held' ? 'Baris ini ditahan dan tidak pernah masuk berkas bank.' : ''),\n    di_berkas: diBerkas.length\n  }};\n});\n\n/* Yang ada di berkas tapi tidak disebut sama sekali oleh balasan ini dan\n   statusnya masih to_pay: belum boleh dianggap lunas. */\nconst takDibalas = diBerkas\n  .filter(function(r){ return String(r.status) === 'to_pay' && !dibalas[r.line_key]; })\n  .map(function(r){ return { vendor: r.vendor, faktur: r.invoice_number,\n    nilai: Number(r.amount||0) - Number(r.discount_taken||0) }; });\nfor (const k of keluar) k.json.tak_dibalas = takDibalas;\nreturn keluar;"
       }
     },
     {
       "id": "sw2",
       "name": "Lunas atau Ditolak",
+      "notes": "Tiga keluaran: lunas, ditolak, dan tidak_dikenal - balasan untuk baris yang tidak pernah ada di berkas. Yang terakhir tidak melewati penulisan ke tabel.",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        460,
+        680,
         760
       ],
       "parameters": {
@@ -682,12 +683,36 @@
               },
               "renameOutput": true,
               "outputKey": "lunas"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b2",
+                    "leftValue": "={{ $json.hasil_bank }}",
+                    "rightValue": "rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ditolak"
             }
           ]
         },
         "options": {
           "fallbackOutput": "extra",
-          "renameFallbackOutput": "ditolak"
+          "renameFallbackOutput": "tidak_dikenal"
         }
       }
     },
@@ -697,7 +722,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        700,
+        920,
         660
       ],
       "parameters": {
@@ -730,7 +755,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        700,
+        920,
         860
       ],
       "parameters": {
@@ -763,11 +788,11 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        940,
+        1160,
         760
       ],
       "parameters": {
-        "numberInputs": 2
+        "numberInputs": 3
       }
     },
     {
@@ -776,8 +801,8 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        1160,
-        760
+        1600,
+        660
       ],
       "parameters": {
         "operation": "upsert",
@@ -818,17 +843,18 @@
     {
       "id": "c29",
       "name": "Rekonsiliasi Run",
+      "notes": "Cabang terpisah dari penulisan, dan sengaja diletakkan LEBIH BAWAH di kanvas: n8n menjalankan cabang dari atas ke bawah, jadi penulisan selesai dulu. Kalau semua balasan tidak dikenal, cabang penulisan tidak jalan - dan laporan ini tetap jalan.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "executeOnce": true,
       "position": [
         1380,
-        760
+        900
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Rekonsiliasi: apa yang dikirim vs apa yang benar-benar lunas. Selisihnya\n   adalah uang yang dikira sudah terbayar padahal tidak, dan itu yang membuat\n   vendor menelepon sebulan kemudian. */\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\nconst balasan = $('Kumpulkan Hasil Bank').all().map(function(i){ return i.json; });\nconst lunas = balasan.filter(function(r){ return r.hasil_bank==='settled'; });\nconst tolak = balasan.filter(function(r){ return r.hasil_bank==='rejected'; });\nconst runKey = String((balasan[0]||{}).run_key||'');\n\nlet tertulis = [];\ntry { tertulis = $('Perbarui Baris Pembayaran').all().map(function(i){ return i.json; })\n      .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { tertulis = []; }\n\nfunction jum(a){ return a.reduce(function(s,r){ return s + Number(r.amount||0); }, 0); }\n\nreturn [{ json: {\n  run_key: runKey,\n  dibalas: balasan.length,\n  lunas: lunas.length, nilai_lunas: jum(lunas),\n  ditolak: tolak.length, nilai_ditolak: jum(tolak),\n  baris_diperbarui: tertulis.length,\n  baris_gagal_diperbarui: balasan.length - tertulis.length,\n  daftar_tolak: tolak.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, nilai:r.amount, alasan:r.reject_reason };\n  }),\n  ringkas: lunas.length + ' lunas (' + rp(jum(lunas)) + ' IDR), '\n    + tolak.length + ' ditolak (' + rp(jum(tolak)) + ' IDR)'\n}}];"
+        "jsCode": "/* Rekonsiliasi balasan bank terhadap berkas yang dikirim:\n   - lunas dan ditolak, dari balasan yang cocok dengan baris di berkas run itu\n   - baris di berkas yang belum dibalas bank sama sekali\n   - balasan untuk baris yang tidak pernah dikirim (tidak ditulis ke tabel)\n   - lunas dengan jumlah yang berbeda dari yang dikirim\n   \"Baris diperbarui\" dihitung dari baris yang benar-benar dikembalikan tabel. */\nfunction rp(n){ return Number(n||0).toLocaleString('id-ID'); }\nconst balasan = $('Kumpulkan Hasil Bank').all().map(function(i){ return i.json; });\nconst pertama = balasan[0] || {};\nconst runKey = String(pertama.run_key||'');\nconst kosong = balasan.filter(function(r){ return r._kosong; });\nconst lunas = balasan.filter(function(r){ return r.hasil_bank === 'settled'; });\nconst tolak = balasan.filter(function(r){ return r.hasil_bank === 'rejected'; });\nconst asing = balasan.filter(function(r){ return r.hasil_bank === 'tidak_dikenal' && !r._kosong; });\nconst takDibalas = Array.isArray(pertama.tak_dibalas) ? pertama.tak_dibalas : [];\nconst beda = lunas.filter(function(r){ return Math.abs(Number(r.amount||0) - Number(r.nilai_dikirim||0)) > 1; });\n\nlet tertulis = [];\ntry { tertulis = $('Perbarui Baris Pembayaran').all().map(function(i){ return i.json; })\n      .filter(function(r){ return r && r.id !== undefined && r.id !== null; }); } catch(e) { tertulis = []; }\n\nfunction jum(a, f){ return a.reduce(function(s,r){ return s + Number(r[f||'amount']||0); }, 0); }\nconst dikenal = lunas.length + tolak.length;\n\nreturn [{ json: {\n  run_key: runKey,\n  di_berkas: Number(pertama.di_berkas||0),\n  dibalas: dikenal,\n  lunas: lunas.length, nilai_lunas: jum(lunas),\n  ditolak: tolak.length, nilai_ditolak: jum(tolak, 'nilai_dikirim'),\n  tak_dibalas: takDibalas.length, nilai_tak_dibalas: jum(takDibalas, 'nilai'),\n  tidak_dikenal: asing.length,\n  baris_diperbarui: tertulis.length,\n  baris_gagal_diperbarui: dikenal - tertulis.length,\n  pesan_kosong: kosong.length ? String(kosong[0].pesan||'') : '',\n  daftar_tolak: tolak.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, nilai:Number(r.nilai_dikirim||0), alasan:r.reject_reason };\n  }),\n  daftar_tak_dibalas: takDibalas,\n  daftar_tidak_dikenal: asing.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, nilai:Number(r.amount||0), alasan:r.alasan_tidak_dikenal };\n  }),\n  daftar_beda: beda.map(function(r){\n    return { vendor:r.vendor, faktur:r.invoice_number, dikirim:Number(r.nilai_dikirim||0), dibalas:Number(r.amount||0) };\n  }),\n  ringkas: lunas.length + ' lunas (' + rp(jum(lunas)) + ' IDR), ' + tolak.length + ' ditolak, '\n    + takDibalas.length + ' belum dibalas, ' + asing.length + ' tidak dikenal'\n}}];"
       }
     },
     {
@@ -838,7 +864,7 @@
       "typeVersion": 3.4,
       "position": [
         1600,
-        760
+        900
       ],
       "parameters": {
         "mode": "manual",
@@ -856,7 +882,7 @@
             {
               "id": "f1",
               "name": "rekon_isi",
-              "value": "=*Rekonsiliasi run {{ $json.run_key }}*\n\nDibalas bank : {{ $json.dibalas }} baris\nLunas        : {{ $json.lunas }} · {{ $json.nilai_lunas.toLocaleString(\"id-ID\") }} IDR\nDitolak      : {{ $json.ditolak }} · {{ $json.nilai_ditolak.toLocaleString(\"id-ID\") }} IDR\nBaris diperbarui di tabel: {{ $json.baris_diperbarui }} dari {{ $json.dibalas }}{{ $json.baris_gagal_diperbarui > 0 ? \" — \" + $json.baris_gagal_diperbarui + \" GAGAL diperbarui\" : \"\" }}\n\n{{ $json.daftar_tolak.length ? \"Ditolak bank, perlu tindakan:\\n\" + $json.daftar_tolak.map(t => \"- \" + t.vendor + \" \" + t.faktur + \" · \" + t.nilai.toLocaleString(\"id-ID\") + \" — \" + t.alasan).join(\"\\n\") : \"Tidak ada penolakan.\" }}",
+              "value": "=*Rekonsiliasi run {{ $json.run_key }}*\n\nDi berkas     : {{ $json.di_berkas }} baris\nDibalas bank  : {{ $json.dibalas }} baris\nLunas         : {{ $json.lunas }} · {{ $json.nilai_lunas.toLocaleString(\"id-ID\") }} IDR\nDitolak       : {{ $json.ditolak }} · {{ $json.nilai_ditolak.toLocaleString(\"id-ID\") }} IDR\nBelum dibalas : {{ $json.tak_dibalas }} · {{ $json.nilai_tak_dibalas.toLocaleString(\"id-ID\") }} IDR\nBaris diperbarui di tabel: {{ $json.baris_diperbarui }} dari {{ $json.dibalas }}{{ $json.baris_gagal_diperbarui > 0 ? \" — \" + $json.baris_gagal_diperbarui + \" GAGAL diperbarui\" : \"\" }}{{ $json.pesan_kosong ? \"\\n\\n\" + $json.pesan_kosong : \"\" }}{{ $json.daftar_tolak.length ? \"\\n\\nDitolak bank, perlu tindakan:\\n\" + $json.daftar_tolak.map(t => \"- \" + t.vendor + \" \" + t.faktur + \" · \" + t.nilai.toLocaleString(\"id-ID\") + \" — \" + t.alasan).join(\"\\n\") : \"\" }}{{ $json.daftar_tak_dibalas.length ? \"\\n\\nBelum dibalas bank, jangan dianggap lunas:\\n\" + $json.daftar_tak_dibalas.map(t => \"- \" + t.vendor + \" \" + t.faktur + \" · \" + t.nilai.toLocaleString(\"id-ID\")).join(\"\\n\") : \"\" }}{{ $json.daftar_tidak_dikenal.length ? \"\\n\\nBalasan untuk baris yang tidak ada di berkas, TIDAK ditulis:\\n\" + $json.daftar_tidak_dikenal.map(t => \"- \" + t.vendor + \" \" + t.faktur + \" · \" + t.nilai.toLocaleString(\"id-ID\") + \" — \" + t.alasan).join(\"\\n\") : \"\" }}{{ $json.daftar_beda.length ? \"\\n\\nLunas dengan jumlah berbeda dari yang dikirim:\\n\" + $json.daftar_beda.map(t => \"- \" + t.vendor + \" \" + t.faktur + \" · dikirim \" + t.dikirim.toLocaleString(\"id-ID\") + \", dibalas \" + t.dibalas.toLocaleString(\"id-ID\")).join(\"\\n\") : \"\" }}",
               "type": "string"
             }
           ]
@@ -867,21 +893,21 @@
     {
       "id": "d5",
       "name": "Gmail: Laporan Rekonsiliasi",
+      "webhookId": "0ec649a3-f04a-46c7-ac1c-c16db5a50159",
       "disabled": true,
       "notes": "DIMATIKAN.",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
         1820,
-        760
+        900
       ],
       "parameters": {
         "sendTo": "treasury@example.com",
         "subject": "={{ $json.rekon_judul }}",
         "message": "={{ $json.rekon_isi }}",
         "options": {}
-      },
-      "webhookId": "0ec649a3-f04a-46c7-ac1c-c16db5a50159"
+      }
     },
     {
       "id": "r1",
@@ -891,11 +917,11 @@
       "onError": "continueRegularOutput",
       "position": [
         2040,
-        760
+        900
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ ok: true, run_key: $json.run_key, diterima: $json.dibalas, lunas: $json.lunas, ditolak: $json.ditolak }) }}",
+        "responseBody": "={{ JSON.stringify({ ok: !$json.pesan_kosong, run_key: $json.run_key, di_berkas: $json.di_berkas, dibalas: $json.dibalas, lunas: $json.lunas, ditolak: $json.ditolak, belum_dibalas: $json.tak_dibalas, tidak_dikenal: $json.tidak_dikenal }) }}",
         "options": {}
       }
     },
@@ -910,9 +936,9 @@
       ],
       "parameters": {
         "width": 1100,
-        "height": 340,
+        "height": 380,
         "color": 4,
-        "content": "## 1 · Dari faktur disetujui ke uang keluar\n\nSumbernya **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Kedua bagian portofolio ini memang bersambung: faktur lolos pencocokan di sana, uangnya keluar di sini.\n\nMaster rekening vendor, riwayat pembayaran, dan posisi kas dibaca **sekali per run**, bukan sekali per faktur. Satu kueri per baris tidak membuat jawabannya lebih benar, cuma lebih lambat."
+        "content": "## 1 · Dari faktur yang lolos pencocokan ke uang keluar\n\nSumbernya **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Faktur lolos pencocokan di sana; di sini diputuskan apakah uangnya boleh keluar.\n\nLolos pencocokan **bukan** persetujuan. `needs_approval` baru dibayar setelah penyetuju yang kewenangannya cukup tercatat di `approved_by` dan `approved_role`.\n\nMaster rekening vendor, riwayat pembayaran, dan posisi kas dibaca **sekali per run**, bukan sekali per faktur."
       }
     },
     {
@@ -926,9 +952,9 @@
       ],
       "parameters": {
         "width": 1100,
-        "height": 340,
+        "height": 420,
         "color": 4,
-        "content": "## 2 · Enam kontrol, dalam urutan yang disengaja\n\n1. **Rekening tidak ada** — tidak bisa membayar ke ketiadaan\n2. **Sanksi** — halangan hukum, diperiksa sebelum urusan uang\n3. **Pembayaran ganda** — transfer tidak bisa ditarik kembali\n4. **Rekening baru berubah** — penipuan pengalihan pembayaran\n5. **Terlalu kecil** — biaya transfer melebihi manfaat\n6. **Kas tidak cukup** — paling akhir, karena ini penjadwalan, bukan penolakan\n\nNomor 4 adalah alasan utama workflow ini ada. Penipuan pembayaran yang berhasil hampir selalu berbentuk sama: sebuah email meminta *\"rekening kami ganti\"*, lalu satu transfer besar hilang. Pertahanannya bukan teknologi — menahan pembayaran, lalu menelepon vendor di nomor LAMA."
+        "content": "## 2 · Tujuh kontrol, dalam urutan yang disengaja\n\n1. **Rekening tidak ada** — tidak bisa membayar ke ketiadaan\n2. **Sanksi** — halangan hukum, diperiksa sebelum urusan uang\n3. **Sudah atau sedang dibayar** — lunas, atau sudah di berkas bank yang belum dibalas\n4. **Rekening baru berubah** — penipuan pengalihan pembayaran\n5. **Belum disetujui** — atau disetujui orang yang kewenangannya kurang\n6. **Terlalu kecil** — biaya transfer melebihi manfaat\n7. **Kas tidak cukup** — paling akhir, karena ini penjadwalan, bukan penolakan\n\nNomor 4 sebelum nomor 5 dengan sengaja: penyetuju harus tahu rekening vendornya baru berubah **sebelum** menandatangani."
       }
     },
     {
@@ -942,9 +968,9 @@
       ],
       "parameters": {
         "width": 1000,
-        "height": 340,
+        "height": 380,
         "color": 4,
-        "content": "## 3 · Berkas bank, dan mengapa ada total kendali\n\nBerkas memuat header, satu baris per pembayaran, dan trailer berisi jumlah baris, total nilai, dan checksum.\n\nBank menolak berkas yang totalnya tidak cocok. Itulah yang menghentikan satu baris terselip, berubah, atau hilang di antara sistem kita dan sistem mereka. Berkas tanpa total kendali hanya *terlihat* seperti berkas.\n\nLaporan treasury menghitung **baris yang benar-benar dikembalikan tabel**, bukan yang diniatkan ditulis — supaya laporan tidak pernah mengklaim pembayaran yang gagal tersimpan."
+        "content": "## 3 · Berkas bank, dan mengapa ada total kendali\n\nHeader, satu baris per pembayaran, dan trailer berisi jumlah baris, total nilai, dan checksum. Bank menolak berkas yang totalnya tidak cocok — itulah yang menghentikan satu baris terselip atau berubah di antara sistem kita dan sistem mereka.\n\nBerkas hanya memuat baris yang **benar-benar tersimpan** di tabel: pembayaran yang tidak tercatat tidak terlihat oleh penjaga pembayaran ganda di run berikutnya.\n\nNomor rekening di berkas demo disamarkan."
       }
     },
     {
@@ -958,9 +984,9 @@
       ],
       "parameters": {
         "width": 1400,
-        "height": 300,
+        "height": 340,
         "color": 5,
-        "content": "## 4 · Pintu masuk kedua: balasan bank\n\nBagian ini yang paling sering hilang dari otomasi pembayaran. Mengirim berkas bukan berarti uangnya sampai: rekening bisa tutup, nama bisa tidak cocok, dana bisa kurang.\n\nWebhook `payment-run-ack` menerima balasan bank, memisahkan yang lunas dari yang ditolak, memperbarui baris yang bersangkutan, lalu merekonsiliasi run. Tanpa jalur ini, catatan kita akan menyatakan semuanya terbayar — dan yang menemukan kesalahannya adalah vendor yang menelepon sebulan kemudian."
+        "content": "## 4 · Pintu masuk kedua: balasan bank\n\nMengirim berkas bukan berarti uangnya sampai: rekening bisa tutup, nama bisa tidak cocok, dana bisa kurang.\n\nWebhook `payment-run-ack` mencocokkan setiap balasan dengan baris yang **benar-benar ada di berkas run itu**, lalu menulis lunas atau ditolak. Balasan untuk baris yang tidak pernah dikirim tidak ditulis. Laporannya juga menyebut baris yang belum dibalas bank dan pelunasan yang jumlahnya berbeda dari yang dikirim.\n\nFaktur yang ditolak bank diajukan lagi dengan sendirinya di run berikutnya."
       }
     },
     {
@@ -974,9 +1000,76 @@
       ],
       "parameters": {
         "width": 700,
-        "height": 200,
+        "height": 240,
         "color": 3,
-        "content": "## Semua tujuan dimatikan\n\nSlack, Gmail, dan HTTP ke bank semuanya **mati** dan tanpa kredensial, jadi demo ini jalan tanpa perlu menyiapkan apa pun. Isi pesannya disusun di node Set sebelumnya, jadi menyalakan salah satunya tidak mengubah logika apa pun."
+        "content": "## Semua tujuan dimatikan\n\nSlack, Gmail, dan HTTP ke bank semuanya **mati** dan tanpa kredensial, jadi demo ini jalan tanpa perlu menyiapkan apa pun. Isi pesan Slack dan email treasury sudah disusun di node Set. Email ke vendor belum bisa dinyalakan: tabel vendor belum punya kolom email."
+      }
+    },
+    {
+      "id": "pr-muat-baris-terkirim",
+      "name": "Muat Baris Terkirim",
+      "notes": "Dimuat dulu supaya setiap balasan bank dicocokkan dengan baris yang benar-benar dikirim. alwaysOutputData: tabel kosong tidak boleh menghentikan cabang.",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "position": [
+        240,
+        760
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "GCl2gmR7jCwWYM2x",
+          "cachedResultName": "PAY Payment Lines"
+        },
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "pr-hanya-baris-dikenal",
+      "name": "Hanya Baris Dikenal",
+      "notes": "Balasan untuk baris yang tidak pernah dikirim tidak boleh sampai ke tabel: upsert akan menciptakan baris pembayaran lunas yang tidak pernah ada, dan penjaga pembayaran ganda membacanya sebagai bukti faktur sudah dibayar.",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1380,
+        660
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "k1",
+              "leftValue": "={{ $json.hasil_bank }}",
+              "rightValue": "settled",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "k2",
+              "leftValue": "={{ $json.hasil_bank }}",
+              "rightValue": "rejected",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
       }
     }
   ],
@@ -1218,7 +1311,7 @@
       "main": [
         [
           {
-            "node": "Baca Balasan Bank",
+            "node": "Muat Baris Terkirim",
             "type": "main",
             "index": 0
           }
@@ -1251,6 +1344,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Kumpulkan Hasil Bank",
+            "type": "main",
+            "index": 2
+          }
         ]
       ]
     },
@@ -1280,16 +1380,10 @@
       "main": [
         [
           {
-            "node": "Perbarui Baris Pembayaran",
+            "node": "Hanya Baris Dikenal",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Perbarui Baris Pembayaran": {
-      "main": [
-        [
+          },
           {
             "node": "Rekonsiliasi Run",
             "type": "main",
@@ -1319,6 +1413,28 @@
           },
           {
             "node": "Balas ke Bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Muat Baris Terkirim": {
+      "main": [
+        [
+          {
+            "node": "Baca Balasan Bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hanya Baris Dikenal": {
+      "main": [
+        [
+          {
+            "node": "Perbarui Baris Pembayaran",
             "type": "main",
             "index": 0
           }

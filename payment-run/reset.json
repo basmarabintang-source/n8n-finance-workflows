@@ -15,8 +15,10 @@
     {
       "id": "h1",
       "name": "Kosongkan Rekening Vendor",
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "alwaysOutputData": true,
       "position": [
         220,
         0
@@ -39,15 +41,15 @@
           ]
         },
         "options": {}
-      },
-      "alwaysOutputData": true,
-      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+      }
     },
     {
       "id": "h2",
       "name": "Kosongkan Rekening Bank",
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "alwaysOutputData": true,
       "position": [
         440,
         0
@@ -70,15 +72,15 @@
           ]
         },
         "options": {}
-      },
-      "alwaysOutputData": true,
-      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+      }
     },
     {
       "id": "h3",
       "name": "Kosongkan Baris Pembayaran",
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau. Baris demo rekonsiliasi (run_key REC-DEMO) sengaja tidak dihapus: itu milik reset rekonsiliasi.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "alwaysOutputData": true,
       "position": [
         660,
         0
@@ -95,21 +97,22 @@
         "filters": {
           "conditions": [
             {
-              "condition": "gte",
-              "keyValue": "1"
+              "keyName": "run_key",
+              "condition": "neq",
+              "keyValue": "REC-DEMO"
             }
           ]
         },
         "options": {}
-      },
-      "alwaysOutputData": true,
-      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+      }
     },
     {
       "id": "h4",
       "name": "Kosongkan Riwayat Run",
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "alwaysOutputData": true,
       "position": [
         880,
         0
@@ -132,15 +135,15 @@
           ]
         },
         "options": {}
-      },
-      "alwaysOutputData": true,
-      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+      }
     },
     {
       "id": "h5",
       "name": "Hapus Faktur Demo Lama",
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "alwaysOutputData": true,
       "position": [
         1100,
         0
@@ -164,9 +167,7 @@
           ]
         },
         "options": {}
-      },
-      "alwaysOutputData": true,
-      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+      }
     },
     {
       "id": "k1",
@@ -263,7 +264,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Satu pembayaran lama yang sudah beres. Ada supaya penjaga pembayaran-ganda\n   punya sesuatu yang nyata untuk ditangkap: faktur yang sama diajukan lagi\n   di run hari ini. Tanpa baris ini, penjaga itu tidak pernah terbukti. */\nfunction hari(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }\nreturn [{ json: {\n  line_key: 'RUN-SEED|SINAR BAJA ELEKTRIK|PAY-1007',\n  run_key: 'RUN-SEED', vendor: 'Sinar Baja Elektrik', invoice_number: 'PAY-1007',\n  amount: 22000000, currency: 'IDR', status: 'settled', route_to: 'accounting_auto',\n  hold_code: '', hold_reason: '', account_number_masked: '******7766',\n  pay_on: hari(-21), discount_taken: 0, bank_ref: 'TRX-SEED-0001',\n  settled_on: hari(-20), reject_reason: '', execution_id: 'seed'\n} }];"
+        "jsCode": "/* Dua pembayaran terdahulu, supaya penjaga pembayaran ganda punya sesuatu yang\n   nyata untuk ditangkap - dua-duanya:\n     PAY-1007  sudah LUNAS di run lama                        -> DUPLICATE\n     PAY-1014  sudah masuk berkas bank, balasannya belum ada  -> IN_FLIGHT\n   Tanpa baris kedua, penjaga yang mencegah pembayaran ganda saat run dijalankan\n   dua kali sebelum bank membalas tidak pernah terbukti. */\nfunction hari(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }\nreturn [\n  { json: {\n    line_key: 'RUN-SEED|SINAR BAJA ELEKTRIK|PAY-1007',\n    run_key: 'RUN-SEED', vendor: 'Sinar Baja Elektrik', invoice_number: 'PAY-1007',\n    amount: 22000000, currency: 'IDR', status: 'settled', route_to: 'accounting_auto',\n    hold_code: '', hold_reason: '', account_number_masked: '******7766',\n    pay_on: hari(-21), discount_taken: 0, bank_ref: 'TRX-SEED-0001',\n    settled_on: hari(-20), reject_reason: '', execution_id: 'seed'\n  } },\n  { json: {\n    line_key: 'RUN-SEED-2|BERKAH JAYA MANDIRI|PAY-1014',\n    run_key: 'RUN-SEED-2', vendor: 'Berkah Jaya Mandiri', invoice_number: 'PAY-1014',\n    amount: 9800000, currency: 'IDR', status: 'to_pay', route_to: 'accounting_auto',\n    hold_code: '', hold_reason: '', account_number_masked: '******7889',\n    pay_on: hari(-1), discount_taken: 0, bank_ref: '',\n    settled_on: '', reject_reason: '', execution_id: 'seed'\n  } }\n];"
       }
     },
     {
@@ -304,7 +305,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "/* Faktur yang sudah lolos pencocokan tiga arah dan menunggu dibayar.\n   Ditulis ke AP Invoice Ledger — tabel yang sama yang ditulis workflow\n   pencocokan tiga arah — supaya kedua workflow portofolio benar-benar\n   bersambung: faktur disetujui di sana, uangnya keluar di sini.\n   po_number 'PAY-RUN' dipakai sebagai penanda supaya reset ini hanya\n   menghapus barisnya sendiri dan tidak mengganggu demo AP. */\nfunction hari(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }\nconst f = [\n  ['Sinar Baja Elektrik',     'PAY-1001',   8760000, 'auto_approve',   'accounting_auto', -4,  'Cocok penuh, di bawah plafon tanpa sentuhan.'],\n  ['Mitra Logistik Nusantara','PAY-1002',  50400000, 'needs_approval', 'manager',         -6,  'Di atas plafon tanpa sentuhan.'],\n  ['Cahaya Teknik Presisi',   'PAY-1003', 120000000, 'needs_approval', 'manager',         -5,  'Cocok penuh. Rekening vendornya yang bermasalah, bukan fakturnya.'],\n  ['PT Kemasan Prima',        'PAY-1004',  47000000, 'needs_approval', 'manager',         -9,  'Cocok penuh, tapi vendornya sedang ditahan.'],\n  ['Berkah Jaya Mandiri',     'PAY-1005',   6000000, 'auto_approve',   'accounting_auto', -2,  'Kecil dan bersih.'],\n  ['Anugerah Metalindo',      'PAY-1006', 480000000, 'needs_approval', 'director',        -11, 'Nilai besar; menembus ambang tanda tangan ganda.'],\n  ['Sinar Baja Elektrik',     'PAY-1007',  22000000, 'auto_approve',   'accounting_auto', -24, 'Faktur ini SUDAH dibayar di run sebelumnya. Diajukan lagi untuk menguji penjaga pembayaran ganda.'],\n  ['Berkah Jaya Mandiri',     'PAY-1008', 310000000, 'needs_approval', 'director',        -7,  'Sah, tapi kas hari ini tidak akan sampai ke sini.'],\n  ['Mitra Logistik Nusantara','PAY-1009',   3500000, 'auto_approve',   'accounting_auto', -1,  'Kecil dan bersih.'],\n];\nreturn f.map(function (r) {\n  return { json: {\n    invoice_key: r[0].toUpperCase() + '|' + r[1],\n    vendor: r[0], invoice_number: r[1], po_number: 'PAY-RUN',\n    amount: r[2], currency: 'IDR', decision: r[3], route_to: r[4],\n    exception_code: '', note: r[6], processed_at: hari(r[5]) + 'T08:00:00.000Z',\n    execution_id: 'seed', qty_billed: 0\n  } };\n});"
+        "jsCode": "/* Faktur yang sudah lolos pencocokan tiga arah, ditulis ke AP Invoice Ledger -\n   tabel yang sama yang ditulis workflow pencocokan tiga arah - supaya kedua\n   workflow portofolio benar-benar bersambung.\n\n   Lolos pencocokan BUKAN berarti boleh dibayar. auto_approve sudah boleh (di\n   bawah plafon tanpa sentuhan); needs_approval baru boleh setelah ada penyetuju\n   yang kewenangannya cukup, dicatat di approved_by / approved_role / approved_on.\n\n   Setiap faktur menguji satu hal, dan ketujuh kontrol menyala pada run pertama:\n     PAY-1003  1,45 milyar, disetujui direktur - tertahan: rekening vendor baru berubah\n     PAY-1004  vendor dalam daftar tahan                     - SANCTIONS\n     PAY-1007  sudah lunas di run lama                       - DUPLICATE\n     PAY-1008  sah dan disetujui, tapi kas tidak sampai       - CASH_SHORT\n     PAY-1010  belum disetujui siapa pun                     - AWAITING_APPROVAL\n     PAY-1011  butuh direktur, disetujui manajer             - AWAITING_APPROVAL\n     PAY-1012  vendor tanpa rekening terverifikasi           - NO_BANK_DETAILS\n     PAY-1013  85.000                                        - TOO_SMALL\n     PAY-1014  sudah di berkas bank yang belum dibalas        - IN_FLIGHT\n\n   po_number 'PAY-RUN' dipakai sebagai penanda supaya reset ini hanya menghapus\n   barisnya sendiri. Sebaliknya TIDAK berlaku: reset demo AP mengosongkan seluruh\n   AP Invoice Ledger, termasuk faktur ini - jadi jalankan demo AP dulu, baru reset ini. */\nfunction hari(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }\nconst MGR = ['rudi.manager@example.com', 'manager'];\nconst DIR = ['dewi.direktur@example.com', 'director'];\nconst f = [\n  /* vendor,                     faktur,     nilai,        keputusan,        rute,              umur, penyetuju, catatan */\n  ['Sinar Baja Elektrik',       'PAY-1001',     8760000, 'auto_approve',   'accounting_auto',  -4, null, 'Cocok penuh, di bawah plafon tanpa sentuhan.'],\n  ['Mitra Logistik Nusantara',  'PAY-1002',    50400000, 'needs_approval', 'manager',          -6, MGR,  'Di atas plafon tanpa sentuhan; disetujui manajer.'],\n  ['Cahaya Teknik Presisi',     'PAY-1003',  1450000000, 'needs_approval', 'director',         -5, DIR,  'Cocok penuh dan disetujui direktur. Rekening vendornya yang bermasalah, bukan fakturnya.'],\n  ['PT Kemasan Prima',          'PAY-1004',    47000000, 'needs_approval', 'manager',          -9, MGR,  'Cocok penuh dan disetujui, tapi vendornya sedang ditahan.'],\n  ['Berkah Jaya Mandiri',       'PAY-1005',     6000000, 'auto_approve',   'accounting_auto',  -2, null, 'Kecil dan bersih.'],\n  ['Anugerah Metalindo',        'PAY-1006',   480000000, 'needs_approval', 'director',        -11, DIR,  'Nilai besar; menembus ambang tanda tangan ganda.'],\n  ['Sinar Baja Elektrik',       'PAY-1007',    22000000, 'auto_approve',   'accounting_auto', -24, null, 'Faktur ini SUDAH dibayar di run lama. Diajukan lagi untuk menguji penjaga pembayaran ganda.'],\n  ['Berkah Jaya Mandiri',       'PAY-1008',   310000000, 'needs_approval', 'director',         -7, DIR,  'Sah dan disetujui, tapi kas hari ini tidak akan sampai ke sini.'],\n  ['Mitra Logistik Nusantara',  'PAY-1009',     3500000, 'auto_approve',   'accounting_auto',  -1, null, 'Kecil dan bersih.'],\n  ['Anugerah Metalindo',        'PAY-1010',    95000000, 'needs_approval', 'manager',          -3, null, 'Pencocokan bersih, tapi belum ada yang menyetujui.'],\n  ['Mitra Logistik Nusantara',  'PAY-1011',   180000000, 'needs_approval', 'director',         -8, MGR,  'Butuh direktur, tapi yang menyetujui manajer.'],\n  ['CV Sumber Makmur Teknik',   'PAY-1012',     7500000, 'auto_approve',   'accounting_auto',  -2, null, 'Vendor baru; rekeningnya belum pernah diverifikasi.'],\n  ['Sinar Baja Elektrik',       'PAY-1013',       85000, 'auto_approve',   'accounting_auto',  -1, null, 'Tagihan ongkos kirim kecil.'],\n  ['Berkah Jaya Mandiri',       'PAY-1014',     9800000, 'auto_approve',   'accounting_auto',  -9, null, 'Sudah masuk berkas bank kemarin; balasan banknya belum datang.'],\n];\nreturn f.map(function (r) {\n  return { json: {\n    invoice_key: r[0].toUpperCase() + '|' + r[1],\n    vendor: r[0], invoice_number: r[1], po_number: 'PAY-RUN',\n    amount: r[2], currency: 'IDR', decision: r[3], route_to: r[4],\n    exception_code: '', note: r[7], processed_at: hari(r[5]) + 'T08:00:00.000Z',\n    execution_id: 'seed', qty_billed: 0,\n    approved_by: r[6] ? r[6][0] : '', approved_role: r[6] ? r[6][1] : '',\n    approved_on: r[6] ? hari(r[5] + 1) : ''\n  } };\n});"
       }
     },
     {
@@ -351,7 +352,7 @@
             {
               "id": "a1",
               "name": "hasil",
-              "value": "Data demo pembayaran dikembalikan ke keadaan awal. 6 vendor, 1 rekening bank, 1 pembayaran lama, dan 9 faktur siap bayar. Jalankan \"[PORTFOLIO] Payment Run and Bank Disbursement\" sekarang — semua cabang kontrol akan menyala pada run pertama.",
+              "value": "Data demo pembayaran dikembalikan ke keadaan awal: 6 rekening vendor, 1 rekening bank, 2 pembayaran terdahulu (satu lunas, satu masih menunggu balasan bank), dan 14 faktur di AP Invoice Ledger. Jalankan \"[PORTFOLIO] Payment Run and Bank Disbursement\" sekarang - ketujuh kontrol menyala pada run pertama.",
               "type": "string"
             }
           ]
@@ -370,9 +371,9 @@
       ],
       "parameters": {
         "width": 1200,
-        "height": 260,
+        "height": 340,
         "color": 3,
-        "content": "## Reset demo pembayaran\n\nMengosongkan keempat tabel PAY lalu mengisinya kembali, dan menaruh 9 faktur siap bayar ke **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Kedua workflow portofolio memang bersambung: faktur disetujui di sana, uangnya keluar di sini.\n\nFaktur demo ditandai `po_number = PAY-RUN`, jadi reset ini **hanya menghapus barisnya sendiri** dan tidak mengganggu demo AP.\n\nSemua tanggal dihitung relatif terhadap hari ini. Perubahan rekening Cahaya Teknik Presisi selalu jatuh 3 hari lalu, berapa pun lamanya berkas ini tersimpan."
+        "content": "## Reset demo pembayaran\n\nMengosongkan tabel PAY lalu mengisinya kembali, dan menaruh 14 faktur ke **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Setiap faktur menguji satu kontrol, jadi ketujuhnya menyala pada run pertama.\n\nFaktur demo ditandai `po_number = PAY-RUN`, dan baris pembayaran demo rekonsiliasi (`run_key = REC-DEMO`) tidak disentuh. Sebaliknya **tidak** berlaku: reset demo AP mengosongkan seluruh AP Invoice Ledger. Jalankan demo AP dulu, baru reset ini.\n\nSemua tanggal dihitung relatif terhadap hari ini."
       }
     }
   ],
