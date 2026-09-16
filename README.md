@@ -13,6 +13,8 @@ every run instead of only the happy path.
 | [**AR Collections & Dunning**](ar-collections/) | Accounts receivable. Ages the book, holds back anything disputed or under a live promise to pay, escalates broken promises, respects a contact cadence, and chases per **customer** rather than per invoice. | 13 open invoices → 4 emails, not 13. Every assessed invoice is accounted for in the log, chased or explicitly held, and the report proves it from the rows the table returned |
 | [**Employee Onboarding Coordinator**](hr-onboarding/) | People ops. Derives each new hire's tasks from a checklist **held as data**, creates what is missing, and chases each owning team once with everything it owes — while telling the manager who will not be ready on day one. | 6 hires × a 13-row checklist → the exact 42 tasks those people need, 8 of them created automatically; 5 team digests drafted, 2 held back |
 
+| [**Payment Run & Bank Disbursement**](payment-run/) | Treasury. Turns approved invoices into an actual bank file, behind six controls: missing bank details, sanctions, duplicate payment, **recently changed bank account**, below-minimum, and cash position. Generates the file with a control total, then takes the bank reply back in to settle, reject and reconcile. | 21 invoices in → 7 paid (607.469.600 IDR), 5 held (1.949.000.000 IDR). One hold was a 1,45 milyar invoice the 3-way match had already approved — its vendor bank account had changed 3 days earlier, by email |
+
 ## What these are meant to show
 
 **The rules live in one place and in a deliberate order.** In both pieces a single Code node

@@ -1,0 +1,540 @@
+{
+  "name": "[PORTFOLIO] Reset Demo Pembayaran",
+  "nodes": [
+    {
+      "id": "trig",
+      "name": "Reset Demo Pembayaran",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "h1",
+      "name": "Kosongkan Rekening Vendor",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ZoZCjWNXqayS4iEp",
+          "cachedResultName": "PAY Vendor Bank Details"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+    },
+    {
+      "id": "h2",
+      "name": "Kosongkan Rekening Bank",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "sk3WbRUpUm83FGG7",
+          "cachedResultName": "PAY Bank Accounts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+    },
+    {
+      "id": "h3",
+      "name": "Kosongkan Baris Pembayaran",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "GCl2gmR7jCwWYM2x",
+          "cachedResultName": "PAY Payment Lines"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+    },
+    {
+      "id": "h4",
+      "name": "Kosongkan Riwayat Run",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "sU7LzcrCnAEi6QH6",
+          "cachedResultName": "PAY Payment Runs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "condition": "gte",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+    },
+    {
+      "id": "h5",
+      "name": "Hapus Faktur Demo Lama",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Bp66pyZNrs2qQyBl",
+          "cachedResultName": "AP Invoice Ledger"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "po_number",
+              "condition": "eq",
+              "keyValue": "PAY-RUN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData WAJIB. Tabel yang sudah kosong membuat node ini mengeluarkan 0 item, dan n8n menghentikan cabang saat sebuah node tidak mengeluarkan apa pun - seluruh penyemaian di belakangnya diam-diam tidak jalan meski run tetap hijau."
+    },
+    {
+      "id": "k1",
+      "name": "Susun Rekening Vendor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Tanggal dihitung relatif terhadap hari ini supaya demonya tidak pernah basi.\n   Yang penting: Cahaya Teknik Presisi mengubah nomor rekening 3 hari lalu,\n   lewat email dari alamat gmail, bukan portal vendor. Itulah bentuk penipuan\n   pengalihan pembayaran yang paling sering memakan korban, dan satu-satunya\n   pertahanannya adalah menahan pembayaran sampai ada yang menelepon vendor. */\nfunction hari(n) {\n  const d = new Date(); d.setDate(d.getDate() + n);\n  return d.toISOString().slice(0, 10);\n}\nreturn [\n  { vendor: 'Sinar Baja Elektrik', bank_name: 'Bank Mandiri', account_number: '1370099887766',\n    account_name: 'PT SINAR BAJA ELEKTRIK', currency: 'IDR', verified_on: hari(-189),\n    changed_on: hari(-189), changed_by: 'ap.clerk@example.com', change_channel: 'vendor_portal',\n    sanctions_flag: false, payment_terms: '2/10 NET 30',\n    notes: 'Rekening tidak pernah berubah sejak diverifikasi.' },\n  { vendor: 'Mitra Logistik Nusantara', bank_name: 'Bank Central Asia', account_number: '5490332211004',\n    account_name: 'PT MITRA LOGISTIK NUSANTARA', currency: 'IDR', verified_on: hari(-239),\n    changed_on: hari(-239), changed_by: 'ap.clerk@example.com', change_channel: 'vendor_portal',\n    sanctions_flag: false, payment_terms: 'NET 30', notes: '' },\n  { vendor: 'Cahaya Teknik Presisi', bank_name: 'Bank Permata', account_number: '9911223344556',\n    account_name: 'CAHAYA TEKNIK PRESISI', currency: 'IDR', verified_on: hari(-226),\n    changed_on: hari(-3), changed_by: 'finance.cahaya@gmail.com', change_channel: 'email',\n    sanctions_flag: false, payment_terms: 'NET 30',\n    notes: 'Nomor rekening diubah 3 hari lalu lewat email dari alamat gmail, bukan portal vendor.' },\n  { vendor: 'PT Kemasan Prima', bank_name: 'Bank Negara Indonesia', account_number: '7788990011223',\n    account_name: 'PT KEMASAN PRIMA', currency: 'IDR', verified_on: hari(-151),\n    changed_on: hari(-151), changed_by: 'ap.clerk@example.com', change_channel: 'vendor_portal',\n    sanctions_flag: true, payment_terms: 'NET 45',\n    notes: 'Masuk daftar tahan sejak sengketa pajak. Semua pembayaran wajib ditinjau legal.' },\n  { vendor: 'Berkah Jaya Mandiri', bank_name: 'Bank Rakyat Indonesia', account_number: '3344556677889',\n    account_name: 'CV BERKAH JAYA MANDIRI', currency: 'IDR', verified_on: hari(-109),\n    changed_on: hari(-109), changed_by: 'ap.clerk@example.com', change_channel: 'vendor_portal',\n    sanctions_flag: false, payment_terms: 'NET 14', notes: '' },\n  { vendor: 'Anugerah Metalindo', bank_name: 'Bank Mandiri', account_number: '1370077665544',\n    account_name: 'PT ANUGERAH METALINDO', currency: 'IDR', verified_on: hari(-316),\n    changed_on: hari(-316), changed_by: 'ap.clerk@example.com', change_channel: 'vendor_portal',\n    sanctions_flag: false, payment_terms: 'NET 60',\n    notes: 'Pemasok besar; nilainya selalu menembus ambang tanda tangan ganda.' },\n].map(function (v) { return { json: v }; });"
+      }
+    },
+    {
+      "id": "s1",
+      "name": "Tulis Rekening Vendor",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "ZoZCjWNXqayS4iEp",
+          "cachedResultName": "PAY Vendor Bank Details"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "k2",
+      "name": "Susun Rekening Bank",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Satu rekening operasional. Saldo sengaja dibuat TIDAK cukup untuk membayar\n   semua yang lolos kontrol, supaya cabang \"kas tidak cukup\" benar-benar hidup\n   di setiap demo, bukan cuma ada di kode. */\nconst d = new Date();\nreturn [{ json: {\n  account_code: 'OPS-IDR-01', bank_name: 'Bank Mandiri', account_number: '1220004455667',\n  currency: 'IDR', balance: 900000000, min_buffer: 150000000, cost_of_cash_pct: 12,\n  as_of: d.toISOString().slice(0, 10)\n} }];"
+      }
+    },
+    {
+      "id": "s2",
+      "name": "Tulis Rekening Bank",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "sk3WbRUpUm83FGG7",
+          "cachedResultName": "PAY Bank Accounts"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "k3",
+      "name": "Susun Pembayaran Lama",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Satu pembayaran lama yang sudah beres. Ada supaya penjaga pembayaran-ganda\n   punya sesuatu yang nyata untuk ditangkap: faktur yang sama diajukan lagi\n   di run hari ini. Tanpa baris ini, penjaga itu tidak pernah terbukti. */\nfunction hari(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }\nreturn [{ json: {\n  line_key: 'RUN-SEED|SINAR BAJA ELEKTRIK|PAY-1007',\n  run_key: 'RUN-SEED', vendor: 'Sinar Baja Elektrik', invoice_number: 'PAY-1007',\n  amount: 22000000, currency: 'IDR', status: 'settled', route_to: 'accounting_auto',\n  hold_code: '', hold_reason: '', account_number_masked: '******7766',\n  pay_on: hari(-21), discount_taken: 0, bank_ref: 'TRX-SEED-0001',\n  settled_on: hari(-20), reject_reason: '', execution_id: 'seed'\n} }];"
+      }
+    },
+    {
+      "id": "s3",
+      "name": "Tulis Pembayaran Lama",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2420,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "GCl2gmR7jCwWYM2x",
+          "cachedResultName": "PAY Payment Lines"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "k4",
+      "name": "Susun Faktur Siap Bayar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/* Faktur yang sudah lolos pencocokan tiga arah dan menunggu dibayar.\n   Ditulis ke AP Invoice Ledger — tabel yang sama yang ditulis workflow\n   pencocokan tiga arah — supaya kedua workflow portofolio benar-benar\n   bersambung: faktur disetujui di sana, uangnya keluar di sini.\n   po_number 'PAY-RUN' dipakai sebagai penanda supaya reset ini hanya\n   menghapus barisnya sendiri dan tidak mengganggu demo AP. */\nfunction hari(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }\nconst f = [\n  ['Sinar Baja Elektrik',     'PAY-1001',   8760000, 'auto_approve',   'accounting_auto', -4,  'Cocok penuh, di bawah plafon tanpa sentuhan.'],\n  ['Mitra Logistik Nusantara','PAY-1002',  50400000, 'needs_approval', 'manager',         -6,  'Di atas plafon tanpa sentuhan.'],\n  ['Cahaya Teknik Presisi',   'PAY-1003', 120000000, 'needs_approval', 'manager',         -5,  'Cocok penuh. Rekening vendornya yang bermasalah, bukan fakturnya.'],\n  ['PT Kemasan Prima',        'PAY-1004',  47000000, 'needs_approval', 'manager',         -9,  'Cocok penuh, tapi vendornya sedang ditahan.'],\n  ['Berkah Jaya Mandiri',     'PAY-1005',   6000000, 'auto_approve',   'accounting_auto', -2,  'Kecil dan bersih.'],\n  ['Anugerah Metalindo',      'PAY-1006', 480000000, 'needs_approval', 'director',        -11, 'Nilai besar; menembus ambang tanda tangan ganda.'],\n  ['Sinar Baja Elektrik',     'PAY-1007',  22000000, 'auto_approve',   'accounting_auto', -24, 'Faktur ini SUDAH dibayar di run sebelumnya. Diajukan lagi untuk menguji penjaga pembayaran ganda.'],\n  ['Berkah Jaya Mandiri',     'PAY-1008', 310000000, 'needs_approval', 'director',        -7,  'Sah, tapi kas hari ini tidak akan sampai ke sini.'],\n  ['Mitra Logistik Nusantara','PAY-1009',   3500000, 'auto_approve',   'accounting_auto', -1,  'Kecil dan bersih.'],\n];\nreturn f.map(function (r) {\n  return { json: {\n    invoice_key: r[0].toUpperCase() + '|' + r[1],\n    vendor: r[0], invoice_number: r[1], po_number: 'PAY-RUN',\n    amount: r[2], currency: 'IDR', decision: r[3], route_to: r[4],\n    exception_code: '', note: r[6], processed_at: hari(r[5]) + 'T08:00:00.000Z',\n    execution_id: 'seed', qty_billed: 0\n  } };\n});"
+      }
+    },
+    {
+      "id": "s4",
+      "name": "Tulis Faktur ke Buku Besar AP",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Bp66pyZNrs2qQyBl",
+          "cachedResultName": "AP Invoice Ledger"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ok",
+      "name": "Konfirmasi Reset",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "executeOnce": true,
+      "position": [
+        3080,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "hasil",
+              "value": "Data demo pembayaran dikembalikan ke keadaan awal. 6 vendor, 1 rekening bank, 1 pembayaran lama, dan 9 faktur siap bayar. Jalankan \"[PORTFOLIO] Payment Run and Bank Disbursement\" sekarang — semua cabang kontrol akan menyala pada run pertama.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "note",
+      "name": "Sticky Reset",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {
+        "width": 1200,
+        "height": 260,
+        "color": 3,
+        "content": "## Reset demo pembayaran\n\nMengosongkan keempat tabel PAY lalu mengisinya kembali, dan menaruh 9 faktur siap bayar ke **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Kedua workflow portofolio memang bersambung: faktur disetujui di sana, uangnya keluar di sini.\n\nFaktur demo ditandai `po_number = PAY-RUN`, jadi reset ini **hanya menghapus barisnya sendiri** dan tidak mengganggu demo AP.\n\nSemua tanggal dihitung relatif terhadap hari ini. Perubahan rekening Cahaya Teknik Presisi selalu jatuh 3 hari lalu, berapa pun lamanya berkas ini tersimpan."
+      }
+    }
+  ],
+  "connections": {
+    "Reset Demo Pembayaran": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Rekening Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Rekening Vendor": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Rekening Bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Rekening Bank": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Baris Pembayaran",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Baris Pembayaran": {
+      "main": [
+        [
+          {
+            "node": "Kosongkan Riwayat Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kosongkan Riwayat Run": {
+      "main": [
+        [
+          {
+            "node": "Hapus Faktur Demo Lama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hapus Faktur Demo Lama": {
+      "main": [
+        [
+          {
+            "node": "Susun Rekening Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Rekening Vendor": {
+      "main": [
+        [
+          {
+            "node": "Tulis Rekening Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Rekening Vendor": {
+      "main": [
+        [
+          {
+            "node": "Susun Rekening Bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Rekening Bank": {
+      "main": [
+        [
+          {
+            "node": "Tulis Rekening Bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Rekening Bank": {
+      "main": [
+        [
+          {
+            "node": "Susun Pembayaran Lama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Pembayaran Lama": {
+      "main": [
+        [
+          {
+            "node": "Tulis Pembayaran Lama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Pembayaran Lama": {
+      "main": [
+        [
+          {
+            "node": "Susun Faktur Siap Bayar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Susun Faktur Siap Bayar": {
+      "main": [
+        [
+          {
+            "node": "Tulis Faktur ke Buku Besar AP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Faktur ke Buku Besar AP": {
+      "main": [
+        [
+          {
+            "node": "Konfirmasi Reset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "pinData": {}
+}
