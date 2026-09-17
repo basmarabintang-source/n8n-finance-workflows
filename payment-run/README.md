@@ -8,10 +8,10 @@ invoice, approving it, and paying it are three different decisions, and only the
 be undone.
 
 It runs on seeded demo data with no credentials. On the first execution after the reset, all seven
-controls fire. This is the report from that run, execution 2946, exactly as the workflow wrote it:
+controls fire. This is the report from that run, execution 2960, exactly as the workflow wrote it:
 
 ```
-*Run Pembayaran RUN-2946* · 2026-09-17
+*Run Pembayaran RUN-2960* · 2026-09-17
 Rekening sumber OPS-IDR-01 · boleh dipakai 740.200.000 IDR
 
 Dibayar   : 5 baris · 548.484.800 IDR
@@ -25,7 +25,7 @@ Baris tersimpan: 14 dari 14
 
 Tertahan, dan siapa pemiliknya:
 - [BANK_CHANGED] Cahaya Teknik Presisi PAY-1003 · 1.450.000.000 → treasury
-  Nomor rekening Cahaya Teknik Presisi berubah 3 hari lalu lewat email oleh finance.cahaya@gmail.com. Telepon vendor memakai nomor LAMA yang tersimpan, bukan kontak apa pun di pesan yang meminta perubahan.
+  Nomor rekening Cahaya Teknik Presisi diubah 3 hari lalu lewat email oleh finance.cahaya@gmail.com, dan perubahan itu belum diverifikasi (verifikasi terakhir: 2026-02-03). Tahanan ini tidak lepas dengan lewatnya waktu. Yang melepasnya hanya konfirmasi telepon terverifikasi di kontrol vendor, ke nomor LAMA yang tersimpan - bukan kontak apa pun di pesan yang meminta perubahan.
 - [CASH_SHORT] Berkah Jaya Mandiri PAY-1008 · 310.000.000 → treasury
   Kas yang boleh dipakai 740.200.000 (saldo 900.000.000 dikurangi cadangan 150.000.000, dikurangi 9.800.000 yang sudah di berkas bank tapi belum dibalas). Run ini sudah mengalokasikan 488.584.800, sedangkan tagihan ini 310.000.000. Ditunda, bukan ditolak.
 - [DUPLICATE] Sinar Baja Elektrik PAY-1007 · 22.000.000 → ap_supervisor
@@ -95,12 +95,14 @@ alone.
 
 Order is deliberate, and the reasoning matters more than the code:
 
-1. **No bank details** — you cannot pay into nothing.
+1. **No bank details** — no vendor master row, or a row with no account number. You cannot pay
+   into nothing.
 2. **Sanctions / blocklist** — a legal bar, checked before any money question.
 3. **Already paid, or already being paid** — `DUPLICATE` when the invoice settled in an earlier
    run; `IN_FLIGHT` when it is already in a bank file the bank has not answered yet. See
    [running it twice](#running-it-twice).
-4. **Bank account changed recently** — payment redirection fraud. See below.
+4. **Bank account changed and not verified** — payment redirection fraud. The hold does not
+   expire. See below.
 5. **Not approved** — or approved by someone without enough authority. See below.
 6. **Below the minimum** (100.000) — transfer cost exceeds the benefit, so it is held for the AP
    clerk. Nothing combines small invoices automatically; the same invoice is held again on every
@@ -109,7 +111,8 @@ Order is deliberate, and the reasoning matters more than the code:
    rejection. Those lines say "deferred, not refused" and are proposed again next run.
 
 Number 4 comes before number 5 on purpose: an invoice still waiting for a signature is flagged when
-the vendor's account has just changed, so the approver finds out **before** signing, not after.
+the vendor's account has changed and not been verified, so the approver finds out **before**
+signing, not after.
 
 ### Why number 4 is the reason this workflow exists
 
@@ -123,11 +126,28 @@ you already had** — never a number in the message that asked for the change. S
 exactly that, and the remittance advice tells vendors the same thing in reverse: if the account
 looks wrong, call us on a number you already know, do not reply to the email.
 
-The window is 14 days by default, in the constant `HARI_REKENING_BARU`, counted from `changed_on`
-in the vendor master. The hold is purely time-based: from day 15 the vendor is paid whether or not
-anyone called. The [vendor control](../vendor-control/) workflow is where the callback is recorded
-and where a bank change is kept out of the master until it is verified, but the payment run does
-not read that record — see [what it does not do yet](#what-it-does-not-do-yet).
+### A bank-change hold ends with verification, not with time
+
+The vendor master records two dates: `changed_on`, when the account last changed, and
+`verified_on`, when it was last verified. An account is held whenever `changed_on` is set and
+`verified_on` is missing or on an earlier date, for as long as that stays true. Apart from this
+demo's reset, only the [vendor control](../vendor-control/) workflow writes `verified_on`: when it
+approves a new vendor or a bank change submitted through the vendor portal, or when a phone callback
+passes its checks. A new-vendor request naming an existing vendor is refused there, so that route
+cannot replace an account either.
+
+This used to be a 14-day timer: from day 15 the vendor was paid whether or not anyone had called,
+and a genuinely verified change restarted the clock. Now:
+
+- **Time alone releases nothing.** With Cahaya Teknik Presisi's change moved back 30 days in the
+  master, execution 2961 still held the invoice.
+- **A denial keeps it held.** After the vendor denied the change on the callback (vendor control
+  execution 2965) and a later attempt to mark it verified was refused (2966), execution 2967 still
+  held it.
+- **A verified callback releases it on the next run.** Once the callback verified the change and
+  wrote the requested account (2971), execution 2972 no longer held the invoice for the bank
+  change. It moved on to control 7 and deferred it there, because 1,45 milyar is more than the cash
+  available.
 
 ### A clean match is not an approval
 
@@ -160,11 +180,11 @@ file, so only 740.200.000 of the 750.000.000 above the buffer was usable.
 ## The bank file, and why it has a control total
 
 The file carries a header, one line per payment, and a trailer with the line count, the total
-value, and a checksum anyone can recompute from the contents. This is the file execution 2946
+value, and a checksum anyone can recompute from the contents. This is the file execution 2960
 built:
 
 ```
-HDR,2946,2026-09-17,5,548484800
+HDR,2960,2026-09-17,5,548484800
 0001,Sinar Baja Elektrik,******7766,Bank Mandiri,8584800,IDR,PAY-1001
 0002,Anugerah Metalindo,******5544,Bank Mandiri,480000000,IDR,PAY-1006
 0003,Mitra Logistik Nusantara,******1004,Bank Central Asia,50400000,IDR,PAY-1002
@@ -181,6 +201,10 @@ sent but not recorded is invisible to control number 3 next time — and gets pa
 numbers are masked in the demo, so the file shows the format, not something a bank could execute.
 
 ## Running it twice
+
+Executions 2946 to 2950 below ran before the bank-change hold was tied to verification. Their treasury
+report would differ today only in the reason under PAY-1003's hold; the fraud alert for that hold
+has also been reworded.
 
 A payment run that is only correct on its first execution is not correct. Execution 2947 was run
 immediately after 2946, before any bank reply:
@@ -284,9 +308,11 @@ approval path is real and the checksum is verified on the bank's side.
 
 ## What it does not do yet
 
-- **A bank-change hold is released by time, not by verification.** The run reads only `changed_on`.
-  It does not check whether vendor control recorded a callback, and a change verified there resets
-  `changed_on` to that day, which starts the 14-day hold again.
+- **Verification is read from the vendor master, not proven.** The run cannot see an account change
+  by itself: it trusts both dates in the master. An account number edited directly without moving
+  `changed_on` is paid with no hold, and anyone who can edit the table can also set `verified_on`.
+  The dates are calendar dates, so a change recorded later on the same day as a verification is not
+  held.
 - **A rejected payment is proposed again as it is.** PAY-1005 was rejected because the account was
   closed, and execution 2950 put it in the next file to the same account. Nothing requires the
   vendor's bank details to be checked first.
@@ -317,7 +343,7 @@ listed explicitly.
 16 mapped columns — so the hold list, the payment list and the written-row count vanished. It now
 reads from the summary node directly.
 
-The rest were found later, by checking this README against the workflow, claim by claim:
+The next four were found later, by checking this README against the workflow, claim by claim:
 
 **Invoices still waiting on an approver were paid.** A clean 3-way match was treated as approval.
 In the run this README used to show, three of the seven paid lines had never been approved.
@@ -331,6 +357,17 @@ line that was never sent became a new "settled" row — which the duplicate chec
 
 **A payment that failed to save still went into the bank file.** The bank file was built from the engine's
 decisions, not from the rows the table returned.
+
+The last two were found while tying the hold to verification:
+
+**The bank-change hold was a timer.** It lasted 14 days from the change and then paid, whether or
+not anyone had called the vendor — and a genuine verification started the clock again. It now
+lasts until vendor control marks the change verified.
+
+**A vendor with an empty account number could be paid.** Control 1 only checked that a master row
+existed. When vendor control briefly wrote empty accounts into the master (a defect on its side,
+[now fixed](../vendor-control/#defects-worth-recording)), execution 2967 put two invoices into the
+bank file with the account `****`. A row with no account number is now held as `NO_BANK_DETAILS`.
 
 The common thread: a number that describes an *intention* rather than an *event* is a bug. A clean
 match is not an approval, a file sent is not a payment settled, and a decision is not a row stored.
