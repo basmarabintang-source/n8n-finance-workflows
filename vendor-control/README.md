@@ -3,8 +3,10 @@
 The workflow that decides who is allowed to be paid, and whether their bank account may change.
 
 It is the other half of the [payment run](../payment-run/). That workflow **holds** a payment when
-a vendor's bank account changed recently. This one is the process that **releases** it — and the
-only legitimate release is a person phoning the vendor on the number already on file.
+a vendor's bank account changed recently. This one decides whether a bank change reaches the
+vendor master at all — and the only legitimate way it does is a person phoning the vendor on the
+number already on file. The payment run does not read the callback: its hold lasts 14 days from
+the change, whatever the call found.
 
 Both read and write the same vendor master, `PAY Vendor Bank Details`. There is one master, not a
 copy per workflow.
@@ -56,16 +58,16 @@ PERCOBAAN PENIPUAN TERTANGKAP:
 
 The master row for Cahaya Teknik Presisi was verified untouched afterwards — same account number,
 same `updatedAt` as the reset. The fraudulent account never reached the table the payment run reads,
-so the 1,45 milyar payment stays held.
+so whenever the 1,45 milyar payment is made, it goes to the account already on file.
 
 ## How the two workflows fit together
 
 ```
-3-Way Match     →  approves the invoice
+3-Way Match     →  matches the invoice and routes it to the director
 Payment Run     →  holds it: vendor bank account changed 3 days ago, by email
 Vendor Control  →  treasury phones the vendor on the OLD number
                 →  vendor denies the request
-                →  master unchanged, attempt recorded as evidence, payment stays held
+                →  master unchanged, attempt recorded as evidence
 ```
 
 ## Files
