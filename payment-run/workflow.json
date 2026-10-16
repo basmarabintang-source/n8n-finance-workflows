@@ -623,7 +623,7 @@
       "typeVersion": 2,
       "position": [
         0,
-        760
+        920
       ],
       "parameters": {
         "httpMethod": "POST",
@@ -639,7 +639,7 @@
       "typeVersion": 2,
       "position": [
         460,
-        760
+        920
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
@@ -655,7 +655,7 @@
       "typeVersion": 3.2,
       "position": [
         680,
-        760
+        920
       ],
       "parameters": {
         "rules": {
@@ -723,7 +723,7 @@
       "typeVersion": 3.4,
       "position": [
         920,
-        660
+        820
       ],
       "parameters": {
         "mode": "manual",
@@ -756,7 +756,7 @@
       "typeVersion": 3.4,
       "position": [
         920,
-        860
+        1020
       ],
       "parameters": {
         "mode": "manual",
@@ -789,7 +789,7 @@
       "typeVersion": 3.2,
       "position": [
         1160,
-        760
+        920
       ],
       "parameters": {
         "numberInputs": 3
@@ -802,7 +802,7 @@
       "typeVersion": 1.1,
       "position": [
         1600,
-        660
+        820
       ],
       "parameters": {
         "operation": "upsert",
@@ -849,7 +849,7 @@
       "executeOnce": true,
       "position": [
         1380,
-        900
+        1060
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
@@ -864,7 +864,7 @@
       "typeVersion": 3.4,
       "position": [
         1600,
-        900
+        1060
       ],
       "parameters": {
         "mode": "manual",
@@ -900,7 +900,7 @@
       "typeVersion": 2.1,
       "position": [
         1820,
-        900
+        1060
       ],
       "parameters": {
         "sendTo": "treasury@example.com",
@@ -917,7 +917,7 @@
       "onError": "continueRegularOutput",
       "position": [
         2040,
-        900
+        1060
       ],
       "parameters": {
         "respondWith": "json",
@@ -931,12 +931,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        0,
-        -420
+        -40,
+        -560
       ],
       "parameters": {
-        "width": 1100,
-        "height": 380,
+        "width": 1080,
+        "height": 1120,
         "color": 4,
         "content": "## 1 · Dari faktur yang lolos pencocokan ke uang keluar\n\nSumbernya **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Faktur lolos pencocokan di sana; di sini diputuskan apakah uangnya boleh keluar.\n\nLolos pencocokan **bukan** persetujuan. `needs_approval` baru dibayar setelah penyetuju yang kewenangannya cukup tercatat di `approved_by` dan `approved_role`.\n\nMaster rekening vendor, riwayat pembayaran, dan posisi kas dibaca **sekali per run**, bukan sekali per faktur."
       }
@@ -947,12 +947,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1120,
-        -420
+        1080,
+        -560
       ],
       "parameters": {
-        "width": 1100,
-        "height": 460,
+        "width": 1140,
+        "height": 1120,
         "color": 4,
         "content": "## 2 · Tujuh kontrol, dalam urutan yang disengaja\n\n1. **Rekening tidak ada** — tidak bisa membayar ke ketiadaan\n2. **Sanksi** — halangan hukum, diperiksa sebelum urusan uang\n3. **Sudah atau sedang dibayar** — lunas, atau sudah di berkas bank yang belum dibalas\n4. **Rekening berubah, belum diverifikasi** — penipuan pengalihan pembayaran; tidak lepas sendiri seiring waktu\n5. **Belum disetujui** — atau disetujui orang yang kewenangannya kurang\n6. **Terlalu kecil** — biaya transfer melebihi manfaat\n7. **Kas tidak cukup** — paling akhir, karena ini penjadwalan, bukan penolakan\n\nNomor 4 sebelum nomor 5 dengan sengaja: penyetuju harus tahu rekening vendornya berubah dan belum diverifikasi **sebelum** menandatangani. Nomor 4 hanya lepas lewat konfirmasi telepon terverifikasi di workflow kontrol vendor."
       }
@@ -963,12 +963,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2300,
-        -420
+        2260,
+        -560
       ],
       "parameters": {
-        "width": 1000,
-        "height": 380,
+        "width": 1060,
+        "height": 1120,
         "color": 4,
         "content": "## 3 · Berkas bank, dan mengapa ada total kendali\n\nHeader, satu baris per pembayaran, dan trailer berisi jumlah baris, total nilai, dan checksum. Bank menolak berkas yang totalnya tidak cocok — itulah yang menghentikan satu baris terselip atau berubah di antara sistem kita dan sistem mereka.\n\nBerkas hanya memuat baris yang **benar-benar tersimpan** di tabel: pembayaran yang tidak tercatat tidak terlihat oleh penjaga pembayaran ganda di run berikutnya.\n\nKalau semua faktur tertahan, berkasnya kosong (0 baris, total 0) dan gerbang **Ada yang Dibayar?** menghentikannya sebelum HTTP: bank tidak pernah menerima batch kosong.\n\nNomor rekening di berkas demo disamarkan."
       }
@@ -979,12 +979,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        0,
-        1000
+        -40,
+        620
       ],
       "parameters": {
-        "width": 1400,
-        "height": 340,
+        "width": 2220,
+        "height": 660,
         "color": 5,
         "content": "## 4 · Pintu masuk kedua: balasan bank\n\nMengirim berkas bukan berarti uangnya sampai: rekening bisa tutup, nama bisa tidak cocok, dana bisa kurang.\n\nWebhook `payment-run-ack` mencocokkan setiap balasan dengan baris yang **benar-benar ada di berkas run itu**, lalu menulis lunas atau ditolak. Balasan untuk baris yang tidak pernah dikirim tidak ditulis. Laporannya juga menyebut baris yang belum dibalas bank dan pelunasan yang jumlahnya berbeda dari yang dikirim.\n\nFaktur yang ditolak bank diajukan lagi dengan sendirinya di run berikutnya."
       }
@@ -995,12 +995,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1580,
-        -420
+        2240,
+        620
       ],
       "parameters": {
-        "width": 700,
-        "height": 240,
+        "width": 640,
+        "height": 180,
         "color": 3,
         "content": "## Semua tujuan dimatikan\n\nSlack, Gmail, dan HTTP ke bank semuanya **mati** dan tanpa kredensial, jadi demo ini jalan tanpa perlu menyiapkan apa pun. Isi pesan Slack dan email treasury sudah disusun di node Set. Email ke vendor belum bisa dinyalakan: tabel vendor belum punya kolom email."
       }
@@ -1015,7 +1015,7 @@
       "alwaysOutputData": true,
       "position": [
         240,
-        760
+        920
       ],
       "parameters": {
         "operation": "get",
@@ -1037,7 +1037,7 @@
       "typeVersion": 2.2,
       "position": [
         1380,
-        660
+        820
       ],
       "parameters": {
         "conditions": {

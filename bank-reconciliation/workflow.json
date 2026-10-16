@@ -615,7 +615,7 @@
       "typeVersion": 2,
       "position": [
         0,
-        760
+        1000
       ],
       "parameters": {
         "httpMethod": "POST",
@@ -631,7 +631,7 @@
       "typeVersion": 2,
       "position": [
         240,
-        760
+        1000
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
@@ -648,7 +648,7 @@
       "alwaysOutputData": true,
       "position": [
         460,
-        760
+        1000
       ],
       "parameters": {
         "operation": "get",
@@ -670,7 +670,7 @@
       "typeVersion": 2,
       "position": [
         900,
-        760
+        1000
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
@@ -685,7 +685,7 @@
       "typeVersion": 3.2,
       "position": [
         1120,
-        760
+        1000
       ],
       "parameters": {
         "rules": {
@@ -730,7 +730,7 @@
       "typeVersion": 3.4,
       "position": [
         1360,
-        660
+        900
       ],
       "parameters": {
         "mode": "manual",
@@ -757,7 +757,7 @@
       "typeVersion": 3.4,
       "position": [
         1360,
-        860
+        1100
       ],
       "parameters": {
         "mode": "manual",
@@ -784,7 +784,7 @@
       "typeVersion": 3.2,
       "position": [
         1600,
-        760
+        1000
       ],
       "parameters": {
         "numberInputs": 2
@@ -798,7 +798,7 @@
       "typeVersion": 2.2,
       "position": [
         1820,
-        660
+        900
       ],
       "parameters": {
         "conditions": {
@@ -831,7 +831,7 @@
       "typeVersion": 1.1,
       "position": [
         2040,
-        660
+        900
       ],
       "parameters": {
         "operation": "upsert",
@@ -870,7 +870,7 @@
       "typeVersion": 1.1,
       "position": [
         1820,
-        880
+        1120
       ],
       "parameters": {
         "operation": "insert",
@@ -911,7 +911,7 @@
       "executeOnce": true,
       "position": [
         2260,
-        760
+        1000
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
@@ -927,7 +927,7 @@
       "onError": "continueRegularOutput",
       "position": [
         2480,
-        760
+        1000
       ],
       "parameters": {
         "respondWith": "json",
@@ -941,12 +941,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        0,
-        -420
+        -40,
+        -680
       ],
       "parameters": {
-        "width": 1320,
-        "height": 340,
+        "width": 1300,
+        "height": 1340,
         "color": 4,
         "content": "## 1 · Dua arah, bukan satu\n\nRekonsiliasi yang hanya bertanya *\"baris rekening koran ini milik siapa?\"* melewatkan separuh masalahnya. Workflow ini juga bertanya kebalikannya: **setiap pembayaran yang kita klaim lunas, adakah debitnya di bank?**\n\nIa membaca dari dua workflow lain sekaligus: pembayaran terkirim dari **payment run**, tagihan terbuka dan pelanggan dari **penagihan AR**. Ini bagian pertama portofolio yang menyatukan sisi hutang dan sisi piutang dalam satu pandangan."
       }
@@ -957,12 +957,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1340,
-        -420
+        1300,
+        -680
       ],
       "parameters": {
-        "width": 1080,
-        "height": 400,
+        "width": 1120,
+        "height": 1340,
         "color": 4,
         "content": "## 2 · Apa yang dicari\n\n**Kritis** — uang yang posisinya tidak pasti:\n- `REJECTED_BUT_DEBITED` — katanya gagal, uangnya keluar\n- `MISSING_DEBIT` — katanya lunas, uangnya tak pernah keluar\n- `UNEXPLAINED_DEBIT`, `DUPLICATE_LINE`, `AMOUNT_DIFFERS`\n\n**Perlu tindak AR** — `PARTIAL`, `OVERPAYMENT`, `DISPUTED_PAID`\n\n**Suspense** — uang masuk yang belum dikenali, atau yang cocok dengan lebih dari satu kombinasi faktur (`AMBIGUOUS_COMBINATION`). Disimpan dan **tidak** dibukukan sebagai pendapatan.\n\n**Cocok** — termasuk satu transfer yang melunasi beberapa faktur tanpa menyebut nomornya, ditemukan dari kombinasi tagihan terbuka yang pas jumlahnya — hanya bila kombinasinya satu-satunya."
       }
@@ -973,12 +973,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2500,
-        -420
+        2460,
+        -680
       ],
       "parameters": {
-        "width": 900,
-        "height": 420,
+        "width": 1060,
+        "height": 1340,
         "color": 3,
         "content": "## 3 · Aman dijalankan dua kali\n\nLog pencocokan dibaca sebelum apa pun diterapkan. Baris yang sudah cocok di run sebelumnya **dilewati**, bukan dilunasi lagi.\n\nTanpa itu, run kedua melihat INV-7002 sudah lunas lalu menandai transfer 180 juta yang sama sebagai **kelebihan bayar** - dan run-nya tetap hijau.\n\nPenerapan kas ditulis ke `AR Open Invoices`, tabel yang dibaca penagihan AR. Pelanggan yang sudah membayar tidak akan ditagih lagi besok pagi.\n\nHal yang sama berlaku untuk pintu kedua: penugasan suspense yang dikirim ulang ditolak, karena uang di baris itu sudah diterapkan."
       }
@@ -989,12 +989,12 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        0,
-        1080
+        -40,
+        720
       ],
       "parameters": {
-        "width": 1500,
-        "height": 300,
+        "width": 2660,
+        "height": 620,
         "color": 5,
         "content": "## 4 · Pintu kedua: menyelesaikan suspense\n\nSetelah seseorang mengenali uang di suspense, penugasannya masuk lewat webhook `rekonsiliasi-suspense`.\n\nPenugasan itu **tetap diperiksa**, tidak diterapkan buta: harus ada nama penyelesai, barisnya harus benar-benar ada di suspense, total yang diterapkan dari satu baris tidak boleh melebihi uang yang masuk (termasuk kiriman sebelumnya), fakturnya harus ada, tidak sedang disengketakan, dan jumlahnya tidak boleh melebihi sisa tagihan. Kas yang diterapkan ke faktur yang salah membuat dua pelanggan salah sekaligus."
       }
@@ -1009,7 +1009,7 @@
       "alwaysOutputData": true,
       "position": [
         680,
-        760
+        1000
       ],
       "parameters": {
         "operation": "get",
