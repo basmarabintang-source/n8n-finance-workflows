@@ -938,7 +938,7 @@
         "width": 1080,
         "height": 1120,
         "color": 4,
-        "content": "## 1 · Dari faktur yang lolos pencocokan ke uang keluar\n\nSumbernya **AP Invoice Ledger** — tabel yang sama yang ditulis workflow pencocokan tiga arah. Faktur lolos pencocokan di sana; di sini diputuskan apakah uangnya boleh keluar.\n\nLolos pencocokan **bukan** persetujuan. `needs_approval` baru dibayar setelah penyetuju yang kewenangannya cukup tercatat di `approved_by` dan `approved_role`.\n\nMaster rekening vendor, riwayat pembayaran, dan posisi kas dibaca **sekali per run**, bukan sekali per faktur."
+        "content": "## 1 · From matched invoice to money out\n\nThe source is the **AP Invoice Ledger**, the same table the 3-way match workflow writes. An invoice passes matching there; here we decide whether the money may actually leave.\n\nPassing the match is **not** approval. A `needs_approval` invoice is only paid once an approver with enough authority is recorded in `approved_by` and `approved_role`.\n\nThe vendor bank master, payment history and cash position are read **once per run**, not once per invoice."
       }
     },
     {
@@ -954,7 +954,7 @@
         "width": 1140,
         "height": 1120,
         "color": 4,
-        "content": "## 2 · Tujuh kontrol, dalam urutan yang disengaja\n\n1. **Rekening tidak ada** — tidak bisa membayar ke ketiadaan\n2. **Sanksi** — halangan hukum, diperiksa sebelum urusan uang\n3. **Sudah atau sedang dibayar** — lunas, atau sudah di berkas bank yang belum dibalas\n4. **Rekening berubah, belum diverifikasi** — penipuan pengalihan pembayaran; tidak lepas sendiri seiring waktu\n5. **Belum disetujui** — atau disetujui orang yang kewenangannya kurang\n6. **Terlalu kecil** — biaya transfer melebihi manfaat\n7. **Kas tidak cukup** — paling akhir, karena ini penjadwalan, bukan penolakan\n\nNomor 4 sebelum nomor 5 dengan sengaja: penyetuju harus tahu rekening vendornya berubah dan belum diverifikasi **sebelum** menandatangani. Nomor 4 hanya lepas lewat konfirmasi telepon terverifikasi di workflow kontrol vendor."
+        "content": "## 2 · Seven controls, in a deliberate order\n\n1. **No bank account** — you can't pay into nothing\n2. **Sanctions** — a legal block, checked before anything about money\n3. **Already paid or in flight** — settled, or already in a bank file the bank hasn't answered yet\n4. **Bank account changed, not verified** — payment-diversion fraud; this hold never lifts on its own with time\n5. **Not approved** — or approved by someone without enough authority\n6. **Too small** — the transfer fee costs more than the payment is worth\n7. **Not enough cash** — last, because this is scheduling, not rejection\n\nNumber 4 comes before number 5 on purpose: the approver must know the vendor's account changed and isn't verified **before** they sign. Number 4 is only lifted by a verified phone confirmation in the vendor control workflow."
       }
     },
     {
@@ -970,7 +970,7 @@
         "width": 1060,
         "height": 1120,
         "color": 4,
-        "content": "## 3 · Berkas bank, dan mengapa ada total kendali\n\nHeader, satu baris per pembayaran, dan trailer berisi jumlah baris, total nilai, dan checksum. Bank menolak berkas yang totalnya tidak cocok — itulah yang menghentikan satu baris terselip atau berubah di antara sistem kita dan sistem mereka.\n\nBerkas hanya memuat baris yang **benar-benar tersimpan** di tabel: pembayaran yang tidak tercatat tidak terlihat oleh penjaga pembayaran ganda di run berikutnya.\n\nKalau semua faktur tertahan, berkasnya kosong (0 baris, total 0) dan gerbang **Ada yang Dibayar?** menghentikannya sebelum HTTP: bank tidak pernah menerima batch kosong.\n\nNomor rekening di berkas demo disamarkan."
+        "content": "## 3 · The bank file, and why it has control totals\n\nA header, one line per payment, and a trailer with the line count, the total amount and a checksum. The bank rejects a file whose totals don't match — that is what stops a line slipping in or changing between our system and theirs.\n\nThe file only contains lines that were **actually saved** in the table: a payment that wasn't recorded would be invisible to the double-payment guard on the next run.\n\nIf every invoice is held, the file is empty (0 lines, total 0) and the gate **Ada yang Dibayar?** (\"anything to pay?\") stops it before the HTTP call: the bank never receives an empty batch.\n\nAccount numbers in the demo file are masked."
       }
     },
     {
@@ -986,7 +986,7 @@
         "width": 2220,
         "height": 660,
         "color": 5,
-        "content": "## 4 · Pintu masuk kedua: balasan bank\n\nMengirim berkas bukan berarti uangnya sampai: rekening bisa tutup, nama bisa tidak cocok, dana bisa kurang.\n\nWebhook `payment-run-ack` mencocokkan setiap balasan dengan baris yang **benar-benar ada di berkas run itu**, lalu menulis lunas atau ditolak. Balasan untuk baris yang tidak pernah dikirim tidak ditulis. Laporannya juga menyebut baris yang belum dibalas bank dan pelunasan yang jumlahnya berbeda dari yang dikirim.\n\nFaktur yang ditolak bank diajukan lagi dengan sendirinya di run berikutnya."
+        "content": "## 4 · Second entry point: the bank's reply\n\nSending the file doesn't mean the money arrived: an account can be closed, a name can mismatch, funds can fall short.\n\nThe `payment-run-ack` webhook matches each reply to a line that was **actually in that run's file**, then writes settled or rejected. Replies for lines that were never sent are not written. The report also lists lines the bank hasn't answered yet, and settlements whose amount differs from what was sent.\n\nInvoices the bank rejected are proposed again automatically on the next run."
       }
     },
     {
@@ -1002,7 +1002,7 @@
         "width": 640,
         "height": 180,
         "color": 3,
-        "content": "## Semua tujuan dimatikan\n\nSlack, Gmail, dan HTTP ke bank semuanya **mati** dan tanpa kredensial, jadi demo ini jalan tanpa perlu menyiapkan apa pun. Isi pesan Slack dan email treasury sudah disusun di node Set. Email ke vendor belum bisa dinyalakan: tabel vendor belum punya kolom email."
+        "content": "## All destinations are switched off\n\nSlack, Gmail and the HTTP call to the bank are all **off** and carry no credentials, so the demo runs with nothing to set up. The Slack message and the treasury email are already composed in Set nodes. The vendor email can't be switched on yet: the vendor table has no email column."
       }
     },
     {
@@ -1075,7 +1075,7 @@
     {
       "id": "b7c1e0a2-5d3f-4e8a-9c61-0f2a7d4e9b13",
       "name": "Ada yang Dibayar?",
-      "notes": "Berkas tanpa baris pembayaran tidak dikirim ke bank. Jalur false sengaja tidak tersambung: run tetap selesai dan Ringkas Run tetap melaporkan 0 baris.",
+      "notes": "A bank file with no payment lines is never sent to the bank. The false branch is left unconnected on purpose: the run still finishes and Ringkas Run still reports 0 lines.",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [

@@ -948,7 +948,7 @@
         "width": 1300,
         "height": 1340,
         "color": 4,
-        "content": "## 1 · Dua arah, bukan satu\n\nRekonsiliasi yang hanya bertanya *\"baris rekening koran ini milik siapa?\"* melewatkan separuh masalahnya. Workflow ini juga bertanya kebalikannya: **setiap pembayaran yang kita klaim lunas, adakah debitnya di bank?**\n\nIa membaca dari dua workflow lain sekaligus: pembayaran terkirim dari **payment run**, tagihan terbuka dan pelanggan dari **penagihan AR**. Ini bagian pertama portofolio yang menyatukan sisi hutang dan sisi piutang dalam satu pandangan."
+        "content": "## 1 · Two directions, not one\n\nA reconciliation that only asks *\"who does this bank line belong to?\"* misses half the problem. This workflow also asks the reverse: **for every payment we say is paid, is there a debit at the bank?**\n\nIt reads from two other workflows at once: payments sent by the **payment run**, and open invoices and customers from **AR collections**. It is the first piece of the portfolio that puts the payables and receivables sides in one view."
       }
     },
     {
@@ -964,7 +964,7 @@
         "width": 1120,
         "height": 1340,
         "color": 4,
-        "content": "## 2 · Apa yang dicari\n\n**Kritis** — uang yang posisinya tidak pasti:\n- `REJECTED_BUT_DEBITED` — katanya gagal, uangnya keluar\n- `MISSING_DEBIT` — katanya lunas, uangnya tak pernah keluar\n- `UNEXPLAINED_DEBIT`, `DUPLICATE_LINE`, `AMOUNT_DIFFERS`\n\n**Perlu tindak AR** — `PARTIAL`, `OVERPAYMENT`, `DISPUTED_PAID`\n\n**Suspense** — uang masuk yang belum dikenali, atau yang cocok dengan lebih dari satu kombinasi faktur (`AMBIGUOUS_COMBINATION`). Disimpan dan **tidak** dibukukan sebagai pendapatan.\n\n**Cocok** — termasuk satu transfer yang melunasi beberapa faktur tanpa menyebut nomornya, ditemukan dari kombinasi tagihan terbuka yang pas jumlahnya — hanya bila kombinasinya satu-satunya."
+        "content": "## 2 · What it looks for\n\n**Critical** — money whose position is uncertain:\n- `REJECTED_BUT_DEBITED` — reported as failed, but the money left\n- `MISSING_DEBIT` — reported as paid, but the money never left\n- `UNEXPLAINED_DEBIT`, `DUPLICATE_LINE`, `AMOUNT_DIFFERS`\n\n**Needs AR action** — `PARTIAL`, `OVERPAYMENT`, `DISPUTED_PAID`\n\n**Suspense** — incoming money that isn't recognised yet, or that matches more than one combination of invoices (`AMBIGUOUS_COMBINATION`). It is held and **not** booked as revenue.\n\n**Matched** — including a single transfer that pays several invoices without naming them, found from the combination of open invoices whose amounts add up exactly — but only when that combination is the only one."
       }
     },
     {
@@ -980,7 +980,7 @@
         "width": 1060,
         "height": 1340,
         "color": 3,
-        "content": "## 3 · Aman dijalankan dua kali\n\nLog pencocokan dibaca sebelum apa pun diterapkan. Baris yang sudah cocok di run sebelumnya **dilewati**, bukan dilunasi lagi.\n\nTanpa itu, run kedua melihat INV-7002 sudah lunas lalu menandai transfer 180 juta yang sama sebagai **kelebihan bayar** - dan run-nya tetap hijau.\n\nPenerapan kas ditulis ke `AR Open Invoices`, tabel yang dibaca penagihan AR. Pelanggan yang sudah membayar tidak akan ditagih lagi besok pagi.\n\nHal yang sama berlaku untuk pintu kedua: penugasan suspense yang dikirim ulang ditolak, karena uang di baris itu sudah diterapkan."
+        "content": "## 3 · Safe to run twice\n\nThe match log is read before anything is applied. Lines already matched in an earlier run are **skipped**, not settled again.\n\nWithout that, the second run sees INV-7002 already paid and marks the same 180 million transfer as an **overpayment** - and the run still shows green.\n\nCash application is written to `AR Open Invoices`, the table AR collections reads. A customer who has paid won't be chased again tomorrow morning.\n\nThe same goes for the second entry point: a suspense assignment that is sent again is refused, because the money on that line has already been applied."
       }
     },
     {
@@ -996,7 +996,7 @@
         "width": 2660,
         "height": 620,
         "color": 5,
-        "content": "## 4 · Pintu kedua: menyelesaikan suspense\n\nSetelah seseorang mengenali uang di suspense, penugasannya masuk lewat webhook `rekonsiliasi-suspense`.\n\nPenugasan itu **tetap diperiksa**, tidak diterapkan buta: harus ada nama penyelesai, barisnya harus benar-benar ada di suspense, total yang diterapkan dari satu baris tidak boleh melebihi uang yang masuk (termasuk kiriman sebelumnya), fakturnya harus ada, tidak sedang disengketakan, dan jumlahnya tidak boleh melebihi sisa tagihan. Kas yang diterapkan ke faktur yang salah membuat dua pelanggan salah sekaligus."
+        "content": "## 4 · Second entry point: resolving suspense\n\nOnce someone recognises money sitting in suspense, their assignment comes in through the `rekonsiliasi-suspense` webhook.\n\nThat assignment is **still checked**, not applied blindly: it must name who resolved it, the line must really be in suspense, the total applied from one line can't exceed the money that came in (including earlier submissions), the invoice must exist and not be in dispute, and the amount can't exceed what is still owed. Cash applied to the wrong invoice makes two customers wrong at once."
       }
     },
     {

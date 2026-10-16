@@ -898,7 +898,7 @@
         -600
       ],
       "parameters": {
-        "content": "## 1 · Antrean permintaan vendor\n\nDua jenis permintaan masuk ke satu antrean: **vendor baru** dan **ganti rekening**. Keduanya melewati pemeriksaan yang sama, tapi ganti rekening menanggung satu kontrol tambahan yang tidak dimiliki vendor baru - dan itulah kontrol yang paling sering menyelamatkan uang.\n\nMaster yang dibaca di sini adalah `PAY Vendor Bank Details`, tabel yang sama yang dipakai **payment run**. Ketiga bagian portofolio ini memakai satu master vendor, bukan tiga salinan.",
+        "content": "## 1 · Vendor request queue\n\nTwo kinds of request go into one queue: **new vendors** and **bank account changes**. Both go through the same checks, but a bank change carries one extra control that a new vendor doesn't - and that is the control that saves money most often.\n\nThe master read here is `PAY Vendor Bank Details`, the same table the **payment run** uses. All three pieces of the portfolio share one vendor master, not three copies.",
         "height": 1260,
         "width": 620,
         "color": 4
@@ -914,7 +914,7 @@
         -600
       ],
       "parameters": {
-        "content": "## 2 · Tujuh kontrol\n\n1. **Data tidak lengkap** — tidak bisa menilai yang tidak ada\n2. **NPWP tidak sah** — 15 digit, ditolak di depan\n3. **Vendor ditahan** — halangan hukum\n4. **Duplikat** — dicari tiga arah: nama mirip, NPWP sama, nomor rekening sama\n5. **Nama rekening beda** — rekening perorangan untuk tagihan badan usaha\n6. **Pemisahan wewenang** — peminta tidak boleh merangkap penyetuju\n7. **Jalur permintaan** — ganti rekening di luar portal wajib dikonfirmasi telepon\n\nNomor 4 mencari nomor rekening yang sama di dua vendor berbeda. Itu hampir selalu berarti salah satunya bukan vendor sungguhan.",
+        "content": "## 2 · Seven controls\n\n1. **Incomplete data** — you can't assess what isn't there\n2. **Invalid tax ID (NPWP)** — 15 digits, rejected up front\n3. **Vendor on hold** — a legal block\n4. **Duplicate** — searched three ways: similar name, same tax ID, same account number\n5. **Account name differs** — a personal account for a company's invoice\n6. **Separation of duties** — the requester can't also be the approver\n7. **Request channel** — a bank change from outside the portal must be confirmed by phone\n\nNumber 4 looks for the same account number on two different vendors. That almost always means one of them isn't a real vendor.",
         "height": 1260,
         "width": 840,
         "color": 4
@@ -930,7 +930,7 @@
         -600
       ],
       "parameters": {
-        "content": "## 3 · Hanya yang disetujui menyentuh master\n\nSaringan sebelum penulisan master bukan hiasan. Tanpa itu, keputusan yang **dihitung tapi tidak ditegakkan** tetap akan menulis rekening baru ke master - dan run-nya tetap hijau, laporannya tetap rapi, sementara rekening penipu sudah masuk.\n\nItulah kelas cacat yang paling mahal di seluruh portofolio ini, dan alasan setiap laporan di sini menghitung baris yang benar-benar dikembalikan tabel.",
+        "content": "## 3 · Only approved changes touch the master\n\nThe filter before the master write isn't decoration. Without it, a decision that was **calculated but not enforced** would still write the new account to the master - and the run stays green, the report stays tidy, while the fraudster's account is already in.\n\nThat is the most expensive class of defect in this whole portfolio, and the reason every report here counts the rows the table actually returned.",
         "height": 1260,
         "width": 860,
         "color": 3
@@ -946,7 +946,7 @@
         720
       ],
       "parameters": {
-        "content": "## 4 · Pintu kedua: konfirmasi telepon\n\nPayment run **menahan** uangnya. Proses inilah yang **melepasnya** - tapi hanya setelah ada manusia yang benar-benar menelepon vendor di nomor LAMA yang tersimpan di master, bukan nomor mana pun yang tertulis di permintaan.\n\nKonfirmasi masuk lewat webhook `vendor-callback` dan **diperiksa, bukan dipercaya**: permintaannya harus sedang menunggu telepon dan belum pernah diputuskan, penelepon bukan pengaju, nomor yang ditelepon bukan nomor di permintaan. Rekening yang diterapkan diambil dari permintaan aslinya. Payment run hanya melepas tahanan bila rekeningnya sudah diverifikasi sesudah diubah — tidak ada batas waktu yang melepasnya. Kalau vendor **menyangkal** meminta perubahan, itu bukan kegagalan proses - itu keberhasilannya: sebuah percobaan penipuan tertangkap sebelum uang berpindah.",
+        "content": "## 4 · Second entry point: phone confirmation\n\nThe payment run **holds** the money. This process is what **releases** it - but only after a person has actually called the vendor on the OLD number stored in the master, not any number written in the request.\n\nThe confirmation comes in through the `vendor-callback` webhook and is **checked, not trusted**: the request must be waiting for a call and not yet decided, the caller can't be the requester, and the number called can't be the one in the request. The account that gets applied is taken from the original request. The payment run only releases the hold once the account has been verified after the change — no time limit releases it. If the vendor **denies** asking for the change, that isn't the process failing - it's the process working: an attempted fraud caught before any money moved.",
         "height": 720,
         "width": 2420,
         "color": 5
