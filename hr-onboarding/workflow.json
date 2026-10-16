@@ -4,6 +4,7 @@
     {
       "id": "2233bfd7-2128-46fa-9625-64bc2081efdd",
       "name": "Every Morning",
+      "notes": "Before the working day, so a team that owes something has the whole day to do it.",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
@@ -14,18 +15,17 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
               "triggerAtHour": 7,
               "triggerAtMinute": 30
             }
           ]
         }
-      },
-      "notes": "Before the working day, so a team that owes something has the whole day to do it."
+      }
     },
     {
       "id": "3f5dddb8-830c-4a98-b1b2-3f26f014748c",
       "name": "Load New Hires",
+      "notes": "Everyone in flight, including cancelled offers. Filtering happens in the engine so the reason for skipping someone is written down rather than hidden in a query.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
@@ -33,7 +33,6 @@
         128
       ],
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
@@ -46,8 +45,7 @@
           "conditions": []
         },
         "returnAll": true
-      },
-      "notes": "Everyone in flight, including cancelled offers. Filtering happens in the engine so the reason for skipping someone is written down rather than hidden in a query."
+      }
     },
     {
       "id": "912427d9-3e90-45a5-9eba-17ed42fe7436",
@@ -63,14 +61,15 @@
     {
       "id": "458c49ad-8444-4973-9eec-06829bd07f72",
       "name": "Load Onboarding Checklist",
+      "notes": "The checklist is DATA, not code. HR adds a row to give every future mechanic a new induction step, and nobody has to open this workflow.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "executeOnce": true,
       "position": [
         448,
         128
       ],
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
@@ -83,21 +82,21 @@
           "conditions": []
         },
         "returnAll": true
-      },
-      "notes": "The checklist is DATA, not code. HR adds a row to give every future mechanic a new induction step, and nobody has to open this workflow.",
-      "executeOnce": true
+      }
     },
     {
       "id": "47b98a57-d3a2-41d3-8f69-f35c54c74e6e",
       "name": "Load Existing Tasks",
+      "notes": "Empty on the very first run for a brand new hire, which is the normal case, so this must not stop the chain.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "executeOnce": true,
+      "alwaysOutputData": true,
       "position": [
         672,
         128
       ],
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
@@ -110,35 +109,31 @@
           "conditions": []
         },
         "returnAll": true
-      },
-      "notes": "Empty on the very first run for a brand new hire, which is the normal case, so this must not stop the chain.",
-      "executeOnce": true,
-      "alwaysOutputData": true
+      }
     },
     {
       "id": "47bb268b-ce4d-48dc-8b8e-fe3ff78e772f",
       "name": "Expand the Checklist per Hire",
+      "notes": "Turns 6 hires and 12 checklist rows into the exact task list each person needs, by role, department and employment type. A hire with no tasks yet comes out fully populated and flagged is_new.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        896,
+        900,
         128
       ],
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
         "jsCode": "function dayDiff(fromIso, toIso) {\n  const a = Date.parse(String(fromIso) + 'T00:00:00Z');\n  const b = Date.parse(String(toIso) + 'T00:00:00Z');\n  if (isNaN(a) || isNaN(b)) return null;\n  return Math.round((b - a) / 86400000);\n}\nfunction shiftIso(iso, days) {\n  const t = Date.parse(String(iso) + 'T00:00:00Z');\n  if (isNaN(t)) return '';\n  return new Date(t - days * 86400000).toISOString().slice(0, 10);\n}\nfunction truthy(v) {\n  return v === true || v === 'true' || v === 1 || v === '1';\n}\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst existing = {};\nfor (const it of $('Load Existing Tasks').all()) {\n  const r = it.json || {};\n  if (!r.task_key) continue;\n  existing[String(r.task_key).trim()] = r;\n}\n\nconst template = $('Load Onboarding Checklist').all()\n  .map(function (i) { return i.json || {}; })\n  .filter(function (t) { return t.task_code; });\n\nconst out = [];\n\nfor (const it of $('Load New Hires').all()) {\n  const h = it.json || {};\n  const hireId = String(h.hire_id || '').trim().toUpperCase();\n  const status = String(h.status || 'pending').trim().toLowerCase();\n  const startDate = String(h.start_date || '').trim();\n  const role = String(h.role || '').trim();\n  const dept = String(h.department || '').trim();\n  const empType = String(h.employment_type || '').trim();\n\n  if (!hireId) continue;\n  if (status === 'cancelled') continue;\n  if (dayDiff(startDate, today) === null) continue;\n\n  const wanted = template.filter(function (t) {\n    const a = String(t.applies_to || 'ALL').trim();\n    if (a === 'ALL') return true;\n    if (a.indexOf('ROLE:') === 0) return a.slice(5).trim().toLowerCase() === role.toLowerCase();\n    if (a.indexOf('DEPT:') === 0) return a.slice(5).trim().toLowerCase() === dept.toLowerCase();\n    if (a.indexOf('TYPE:') === 0) return a.slice(5).trim().toLowerCase() === empType.toLowerCase();\n    return false;\n  });\n\n  for (const t of wanted) {\n    const taskCode = String(t.task_code).trim().toUpperCase();\n    const taskKey = hireId + '|' + taskCode;\n    const prev = existing[taskKey] || null;\n    const leadDays = Number(t.lead_days) || 0;\n    const dueDate = shiftIso(startDate, leadDays);\n\n    out.push({\n      json: {\n        task_key: taskKey,\n        hire_id: hireId,\n        hire_name: String(h.full_name || ''),\n        hire_role: role,\n        hire_department: dept,\n        employment_type: empType,\n        manager: String(h.manager || ''),\n        manager_email: String(h.manager_email || ''),\n        start_date: startDate,\n        days_to_start: dayDiff(today, startDate),\n        task_code: taskCode,\n        task_name: String(t.task_name || ''),\n        owner_team: String(t.owner_team || 'Unassigned'),\n        owner_email: String(t.owner_email || ''),\n        due_date: dueDate,\n        days_to_due: dayDiff(today, dueDate),\n        mandatory: truthy(t.mandatory),\n        blocks_day_one: truthy(t.blocks_day_one),\n        status: prev ? String(prev.status || 'open').trim().toLowerCase() : 'open',\n        completed_on: prev ? String(prev.completed_on || '') : '',\n        completed_by: prev ? String(prev.completed_by || '') : '',\n        blocked_reason: prev ? String(prev.blocked_reason || '') : '',\n        last_chased_on: prev ? String(prev.last_chased_on || '') : '',\n        created_on: prev ? String(prev.created_on || today) : today,\n        is_new: prev ? false : true,\n        assessed_on: today,\n        execution_id: String($execution.id || 'manual')\n      }\n    });\n  }\n}\n\nreturn out;"
-      },
-      "notes": "Turns 6 hires and 12 checklist rows into the exact task list each person needs, by role, department and employment type. A hire with no tasks yet comes out fully populated and flagged is_new."
+      }
     },
     {
       "id": "5d87e7d2-0ff0-4cd5-92d5-0ae30a9ec1fc",
       "name": "Only Tasks Not Yet Created",
+      "notes": "Only the rows that do not exist yet are written. Everything already in the table keeps its status, so a completed task is never reset to open by a later run.",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2.2,
       "position": [
-        1120,
-        16
+        1124,
+        128
       ],
       "parameters": {
         "conditions": {
@@ -160,21 +155,22 @@
             }
           ],
           "combinator": "and"
-        }
-      },
-      "notes": "Only the rows that do not exist yet are written. Everything already in the table keeps its status, so a completed task is never reset to open by a later run."
+        },
+        "options": {}
+      }
     },
     {
       "id": "70310627-fcea-4eaa-b3ce-b73bcd653f91",
       "name": "Create the Missing Tasks",
+      "notes": "Upsert rather than insert, keyed on task_key, so re-running the same morning cannot create a second copy of the same task.",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
+      "onError": "continueRegularOutput",
       "position": [
-        1344,
-        16
+        1348,
+        128
       ],
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
@@ -187,7 +183,6 @@
           "conditions": [
             {
               "keyName": "task_key",
-              "condition": "eq",
               "keyValue": "={{ $json.task_key }}"
             }
           ]
@@ -216,25 +211,21 @@
           }
         },
         "options": {}
-      },
-      "notes": "Upsert rather than insert, keyed on task_key, so re-running the same morning cannot create a second copy of the same task.",
-      "onError": "continueRegularOutput"
+      }
     },
     {
       "id": "d6f68da1-55ee-4524-8200-0b8f289891d5",
       "name": "Assess Readiness per Hire",
+      "notes": "A hire is only ready when every MANDATORY task is done. Blocked beats everything, because a blocked task is not a chasing problem and no amount of reminders will move it.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1120,
-        256
+        1580,
+        240
       ],
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
         "jsCode": "const AT_RISK_WINDOW_DAYS = 7;\n\n// OVERDUE is defined in exactly ONE place in this workflow and copied verbatim\n// into \"One Digest per Owner Team\" and \"Build the Onboarding Report\":\n//   not done, and past its due date.\n// A blocked task that is late is still late. Two nodes used to disagree about\n// that, so the same team could be reported as 2 overdue and 3 overdue in two\n// emails sent the same morning.\nfunction isOverdue(t) {\n  return String(t.status) !== 'done' && Number(t.days_to_due) < 0;\n}\n\nfunction describe(t) {\n  return t.task_name + ' (' + t.owner_team + ')';\n}\n\nfunction describeLate(t) {\n  return t.task_name + ' (' + t.owner_team + ') due ' + t.due_date + ', ' +\n    (-Number(t.days_to_due)) + ' day(s) late' + (t.mandatory ? ', mandatory' : '');\n}\n\nconst today = new Date().toISOString().slice(0, 10);\n\nconst byHire = {};\nfor (const it of $('Expand the Checklist per Hire').all()) {\n  const r = it.json || {};\n  const k = r.hire_id;\n  if (!byHire[k]) byHire[k] = [];\n  byHire[k].push(r);\n}\n\nconst out = [];\n\nfor (const hireId of Object.keys(byHire)) {\n  const tasks = byHire[hireId];\n  const any = tasks[0];\n\n  const done = tasks.filter(function (t) { return t.status === 'done'; });\n  const blocked = tasks.filter(function (t) { return t.status === 'blocked'; });\n  const open = tasks.filter(function (t) { return t.status !== 'done' && t.status !== 'blocked'; });\n  const overdue = tasks.filter(isOverdue);\n  const overdueMandatory = overdue.filter(function (t) { return t.mandatory; });\n  const mandatoryOpen = open.concat(blocked).filter(function (t) { return t.mandatory; });\n  const dayOneGaps = open.concat(blocked).filter(function (t) { return t.blocks_day_one; });\n\n  const daysToStart = Number(any.days_to_start);\n  const readiness = tasks.length ? Math.round((done.length / tasks.length) * 100) : 0;\n\n  let outcome = '';\n  let headline = '';\n\n  if (blocked.length) {\n    // Blocked still wins the ROUTING - a blocked task needs a decision, not a\n    // reminder. It must not win the DESCRIPTION: the headline below names the\n    // blocker AND every overdue item AND every day-one gap, so the hire closest\n    // to starting no longer gets the escalation that says the least.\n    outcome = 'blocked';\n    const parts = [];\n    parts.push(blocked.length + ' task(s) blocked and someone has to unblock them: ' +\n      blocked.map(function (t) { return t.task_name + ' (' + t.owner_team + ') - ' + (t.blocked_reason || 'no reason given'); }).join('; '));\n    if (overdue.length) {\n      parts.push(overdue.length + ' item(s) already overdue' +\n        (overdueMandatory.length ? ' (' + overdueMandatory.length + ' mandatory)' : '') + ': ' +\n        overdue.map(describeLate).join('; ') + '.');\n    }\n    if (dayOneGaps.length) {\n      parts.push(dayOneGaps.length + ' day-one item(s) still outstanding: ' +\n        dayOneGaps.map(describe).join(', ') + '.');\n    }\n    parts.push(readiness + '% of the checklist is done with ' + (open.length + blocked.length) +\n      ' item(s) outstanding, and ' +\n      (daysToStart < 0 ? (-daysToStart) + ' day(s) have passed since they started.' : daysToStart + ' day(s) to go.'));\n    headline = parts.join(' ');\n  } else if (!mandatoryOpen.length) {\n    outcome = 'ready';\n    headline = 'Every mandatory task is done. ' + any.hire_name + ' can start on ' + any.start_date + ' with an account, a desk and a laptop.';\n  } else if (dayOneGaps.length && daysToStart <= AT_RISK_WINDOW_DAYS) {\n    outcome = 'at_risk';\n    headline = daysToStart < 0\n      ? (any.hire_name + ' STARTED ' + (-daysToStart) + ' day(s) ago and still has ' + dayOneGaps.length + ' day-one task(s) outstanding.')\n      : (any.hire_name + ' starts in ' + daysToStart + ' day(s) with ' + dayOneGaps.length + ' day-one task(s) still open: ' +\n         dayOneGaps.map(function (t) { return t.task_name + ' (' + t.owner_team + ')'; }).join(', ') + '.');\n    if (overdue.length) {\n      headline = headline + ' ' + overdue.length + ' of them ' +\n        (overdue.length === 1 ? 'is' : 'are') + ' already overdue: ' + overdue.map(describeLate).join('; ') + '.';\n    }\n  } else {\n    outcome = 'on_track';\n    headline = readiness + '% complete, ' + daysToStart + ' day(s) to go. Nothing needs chasing yet.';\n  }\n\n  out.push({\n    json: {\n      hire_id: hireId,\n      hire_name: any.hire_name,\n      hire_role: any.hire_role,\n      hire_department: any.hire_department,\n      employment_type: any.employment_type,\n      manager: any.manager,\n      manager_email: any.manager_email,\n      start_date: any.start_date,\n      days_to_start: daysToStart,\n      outcome: outcome,\n      headline: headline,\n      readiness_pct: readiness,\n      task_total: tasks.length,\n      task_done: done.length,\n      task_open: open.length,\n      task_blocked: blocked.length,\n      task_overdue: overdue.length,\n      task_overdue_mandatory: overdueMandatory.length,\n      day_one_gaps: dayOneGaps.length,\n      newly_created: tasks.filter(function (t) { return t.is_new; }).length,\n      overdue_lines: overdue.map(describeLate),\n      day_one_lines: dayOneGaps.map(describe),\n      blocked_lines: blocked.map(function (t) { return t.task_name + ' (' + t.owner_team + '): ' + (t.blocked_reason || 'no reason given'); }),\n      outstanding: open.concat(blocked).map(function (t) {\n        return {\n          task: t.task_name,\n          code: t.task_code,\n          owner: t.owner_team,\n          due: t.due_date,\n          days_to_due: t.days_to_due,\n          status: t.status,\n          mandatory: t.mandatory,\n          blocks_day_one: t.blocks_day_one,\n          overdue: isOverdue(t),\n          reason: t.blocked_reason\n        };\n      }).sort(function (a, b) { return a.days_to_due - b.days_to_due; }),\n      assessed_on: today,\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nout.sort(function (a, b) { return a.json.days_to_start - b.json.days_to_start; });\nreturn out;"
-      },
-      "notes": "A hire is only ready when every MANDATORY task is done. Blocked beats everything, because a blocked task is not a chasing problem and no amount of reminders will move it."
+      }
     },
     {
       "id": "ddb151a4-93cc-44d7-a62a-d7a65c8d5305",
@@ -242,14 +233,13 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1344,
-        208
+        1804,
+        224
       ],
       "parameters": {
         "rules": {
           "values": [
             {
-              "outputKey": "ready",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -272,7 +262,6 @@
               }
             },
             {
-              "outputKey": "on_track",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -295,7 +284,6 @@
               }
             },
             {
-              "outputKey": "at_risk",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -318,7 +306,6 @@
               }
             },
             {
-              "outputKey": "blocked",
               "conditions": {
                 "options": {
                   "caseSensitive": true,
@@ -351,15 +338,14 @@
     {
       "id": "50e8be30-75d0-4146-9f97-4785f085c713",
       "name": "Confirm Ready for Day One",
+      "notes": "Worth sending. A manager who never hears anything cannot tell the difference between ready and forgotten.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1568,
+        2040,
         0
       ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -381,9 +367,10 @@
               "type": "number"
             }
           ]
-        }
-      },
-      "notes": "Worth sending. A manager who never hears anything cannot tell the difference between ready and forgotten."
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
       "id": "b586cee5-689d-4410-81d1-c9aed9d1a175",
@@ -391,26 +378,24 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        1792,
-        288
+        2264,
+        272
       ],
       "parameters": {
-        "mode": "append",
         "numberInputs": 4
       }
     },
     {
       "id": "2ce8ebe9-387b-43fc-a7c4-148e4956a415",
       "name": "Note Quietly On Track",
+      "notes": "Deliberately silent. Someone 21 days out with an untouched checklist is not late, and mailing about it teaches everyone to ignore the mail.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1568,
-        224
+        2040,
+        192
       ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -432,22 +417,22 @@
               "type": "number"
             }
           ]
-        }
-      },
-      "notes": "Deliberately silent. Someone 21 days out with an untouched checklist is not late, and mailing about it teaches everyone to ignore the mail."
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
       "id": "ae2be2b8-c116-4f83-acfc-629e2b51569a",
       "name": "Raise a Day-One Risk",
+      "notes": "Goes to the manager, not to the teams. The teams get their own digest; the manager gets one message about their person.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1568,
-        416
+        2040,
+        384
       ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -475,22 +460,22 @@
               "type": "number"
             }
           ]
-        }
-      },
-      "notes": "Goes to the manager, not to the teams. The teams get their own digest; the manager gets one message about their person."
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
       "id": "f145b8ba-81a6-42c3-bafe-99f51f0a36b1",
       "name": "Escalate the Blocker",
+      "notes": "Kept separate from at-risk on purpose. Blocked and late look the same on a dashboard and need completely different responses.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1568,
-        608
+        2040,
+        576
       ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -518,69 +503,64 @@
               "type": "number"
             }
           ]
-        }
-      },
-      "notes": "Kept separate from at-risk on purpose. Blocked and late look the same on a dashboard and need completely different responses."
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
       "id": "0e761eab-3e0c-4681-a6eb-8072e9a4f15b",
       "name": "Tell the Manager",
+      "webhookId": "bd5d21e5-2d2a-45da-b6b1-4401b85f9058",
+      "disabled": true,
+      "notes": "Disabled on purpose. Only at-risk and blocked reach here; ready and on-track never ping anyone.",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.7,
       "position": [
-        1792,
-        576
+        2240,
+        1060
       ],
       "parameters": {
-        "resource": "message",
-        "operation": "post",
         "select": "channel",
         "channelId": {
           "__rl": true,
           "mode": "name",
           "value": "#people-ops"
         },
-        "messageType": "text",
         "text": "={{ $json.slack_message }}",
         "otherOptions": {
           "includeLinkToWorkflow": false,
-          "mrkdwn": true,
-          "link_names": true
+          "link_names": true,
+          "mrkdwn": true
         }
-      },
-      "disabled": true,
-      "notes": "Disabled on purpose. Only at-risk and blocked reach here; ready and on-track never ping anyone.",
-      "webhookId": "bd5d21e5-2d2a-45da-b6b1-4401b85f9058"
+      }
     },
     {
       "id": "99aca5c5-3660-45cc-bb4f-0721fcfc11e5",
       "name": "One Digest per Owner Team",
+      "notes": "The second grouping, on a different axis from the first. Hires are grouped for the manager; tasks are grouped for the team that owes them. IT gets one mail listing everything IT owes across every hire.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
+      "executeOnce": true,
       "position": [
-        2016,
+        2480,
         128
       ],
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
         "jsCode": "const CHASE_GAP_DAYS = 2;\nconst URGENT_START_WINDOW_DAYS = 2;\n\nconst today = new Date().toISOString().slice(0, 10);\n\nfunction dayDiff(fromIso, toIso) {\n  const a = Date.parse(String(fromIso) + 'T00:00:00Z');\n  const b = Date.parse(String(toIso) + 'T00:00:00Z');\n  if (isNaN(a) || isNaN(b)) return null;\n  return Math.round((b - a) / 86400000);\n}\n\n// Same single definition of OVERDUE used in \"Assess Readiness per Hire\" and\n// \"Build the Onboarding Report\": not done, and past its due date. Blocked\n// counts. Do not change it in one node only.\nfunction isOverdue(t) {\n  return String(t.status) !== 'done' && Number(t.days_to_due) < 0;\n}\n\nconst byOwner = {};\nfor (const it of $('Expand the Checklist per Hire').all()) {\n  const t = it.json || {};\n  if (t.status === 'done') continue;\n  const k = String(t.owner_team || 'Unassigned');\n  if (!byOwner[k]) byOwner[k] = [];\n  byOwner[k].push(t);\n}\n\nconst out = [];\n\nfor (const team of Object.keys(byOwner)) {\n  const tasks = byOwner[team];\n  // A chase only counts if a message actually went out. \"Stamp the Chase on\n  // Each Task\" records last_chase_result, and while the send step is a\n  // disabled demo node that result is 'drafted_only_send_step_disabled'.\n  // A draft nobody received must not silence tomorrow's digest — without\n  // this test the guard suppresses real work on the strength of a send that\n  // never happened. Rows with no result recorded (the seeded fixture) are\n  // treated as genuine sends, so the cadence guard is still demonstrable.\n  const chased = tasks.filter(function (t) {\n    if (String(t.last_chase_result || 'sent') !== 'sent') return false;\n    const since = t.last_chased_on ? dayDiff(t.last_chased_on, today) : null;\n    return since !== null && since < CHASE_GAP_DAYS;\n  });\n  const dueNow = tasks.filter(function (t) { return Number(t.days_to_due) <= 3; });\n  const overdue = tasks.filter(isOverdue);\n  const overdueMandatory = overdue.filter(function (t) { return t.mandatory; });\n  const blockers = tasks.filter(function (t) { return t.blocks_day_one; });\n\n  // The cadence guard stops a team being mailed twice about the same list.\n  // It must never outrank urgency: something already overdue, or a day-one item\n  // for somebody starting inside URGENT_START_WINDOW_DAYS, is chased again today\n  // however recently it was last chased. The guard only quiets routine nagging.\n  const imminentDayOne = tasks.filter(function (t) {\n    return t.blocks_day_one && Number(t.days_to_start) <= URGENT_START_WINDOW_DAYS;\n  });\n  const urgent = overdue.length > 0 || imminentDayOne.length > 0;\n  const chasedRecently = chased.length === tasks.length && tasks.length > 0;\n  const suppressed = chasedRecently && !urgent;\n  const overridden = chasedRecently && urgent;\n  const worthSending = overdue.length > 0 || dueNow.length > 0;\n\n  let overrideReason = '';\n  if (overridden) {\n    overrideReason = 'Chased within the last ' + CHASE_GAP_DAYS + ' day(s), but ' +\n      (overdue.length\n        ? overdue.length + ' item(s) are already overdue' + (overdueMandatory.length ? ' and ' + overdueMandatory.length + ' of those are mandatory' : '')\n        : imminentDayOne.length + ' day-one item(s) belong to someone starting within ' + URGENT_START_WINDOW_DAYS + ' day(s)') +\n      ', so the cadence guard was overridden and ' + team + ' is being chased again.';\n  }\n\n  out.push({\n    json: {\n      owner_team: team,\n      owner_email: String(tasks[0].owner_email || ''),\n      task_count: tasks.length,\n      overdue_count: overdue.length,\n      overdue_mandatory_count: overdueMandatory.length,\n      due_soon_count: dueNow.length,\n      day_one_blocker_count: blockers.length,\n      imminent_day_one_count: imminentDayOne.length,\n      chased_recently_count: chased.length,\n      hires_touched: Array.from(new Set(tasks.map(function (t) { return t.hire_name; }))).length,\n      urgency: overdue.length ? 'overdue' : (dueNow.length ? 'due_soon' : 'ahead'),\n      send_digest: worthSending && !suppressed,\n      urgency_override: overridden,\n      override_reason: overrideReason,\n      suppressed_reason: suppressed ? ('Every outstanding task for ' + team + ' was already chased within the last ' + CHASE_GAP_DAYS + ' day(s), and none of them is overdue or needed for a day one inside ' + URGENT_START_WINDOW_DAYS + ' day(s).') : '',\n      not_yet_due_reason: (!worthSending && !suppressed) ? ('Nothing with ' + team + ' is overdue or due within 3 days.') : '',\n      lines: tasks.map(function (t) {\n        return {\n          task_key: t.task_key,\n          hire: t.hire_name,\n          starts: t.start_date,\n          days_to_start: t.days_to_start,\n          task: t.task_name,\n          due: t.due_date,\n          days_to_due: t.days_to_due,\n          status: t.status,\n          mandatory: t.mandatory,\n          overdue: isOverdue(t),\n          blocks_day_one: t.blocks_day_one,\n          reason: t.blocked_reason\n        };\n      }).sort(function (a, b) { return a.days_to_due - b.days_to_due; }),\n      assessed_on: today,\n      execution_id: String($execution.id || 'manual')\n    }\n  });\n}\n\nout.sort(function (a, b) { return b.json.overdue_count - a.json.overdue_count; });\nreturn out;"
-      },
-      "notes": "The second grouping, on a different axis from the first. Hires are grouped for the manager; tasks are grouped for the team that owes them. IT gets one mail listing everything IT owes across every hire.",
-      "executeOnce": true
+      }
     },
     {
       "id": "282f32d0-6b7a-40a7-83b1-fced62738693",
       "name": "Draft the Owner Digest",
+      "notes": "One mail per team per morning, not one per task. Six items for IT is one email, which is the difference between a system people read and one they filter.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2240,
+        2704,
         128
       ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -592,7 +572,7 @@
             {
               "id": "dg-b",
               "name": "email_body",
-              "value": "={{ $json.owner_team }} team,\n\nThese onboarding items are with you, across {{ $json.hires_touched }} new starter(s).\n\n{{ $json.lines.map(l => l.hire + \"  ·  \" + l.task + \"  ·  due \" + l.due + (l.days_to_due < 0 ? \"  (\" + (-l.days_to_due) + \" days late)\" : l.days_to_due === 0 ? \"  (today)\" : \"\") + (l.blocks_day_one ? \"  [blocks day one]\" : \"\") + (l.mandatory ? \"  [mandatory]\" : \"\") + (l.status === \"blocked\" ? \"  BLOCKED: \" + l.reason : \"\")).join(\"\\n\") }}\n\n{{ $json.day_one_blocker_count ? $json.day_one_blocker_count + \" of these stop someone working on their first day.\" : \"None of these block a first day.\" }}\n\n{{ $json.urgency_override ? $json.override_reason : ($json.overdue_count ? $json.overdue_count + \" of these are already past their due date.\" : \"Nothing here is late yet.\") }}\n\nReply done and the item closes, or reply with what is stopping you.",
+              "value": "={{ $json.owner_team }} team,\n\nThese onboarding items are with you, across {{ $json.hires_touched }} new starter(s).\n\n{{ $json.lines.map(l => l.hire + \"  ·  \" + l.task + \"  ��  due \" + l.due + (l.days_to_due < 0 ? \"  (\" + (-l.days_to_due) + \" days late)\" : l.days_to_due === 0 ? \"  (today)\" : \"\") + (l.blocks_day_one ? \"  [blocks day one]\" : \"\") + (l.mandatory ? \"  [mandatory]\" : \"\") + (l.status === \"blocked\" ? \"  BLOCKED: \" + l.reason : \"\")).join(\"\\n\") }}\n\n{{ $json.day_one_blocker_count ? $json.day_one_blocker_count + \" of these stop someone working on their first day.\" : \"None of these block a first day.\" }}\n\n{{ $json.urgency_override ? $json.override_reason : ($json.overdue_count ? $json.overdue_count + \" of these are already past their due date.\" : \"Nothing here is late yet.\") }}\n\nReply done and the item closes, or reply with what is stopping you.",
               "type": "string"
             },
             {
@@ -602,22 +582,24 @@
               "type": "number"
             }
           ]
-        }
-      },
-      "notes": "One mail per team per morning, not one per task. Six items for IT is one email, which is the difference between a system people read and one they filter."
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
       "id": "2d87b438-ddae-4aca-9dc1-cb4cf6d238ea",
       "name": "Email the Owning Team",
+      "webhookId": "1f01dede-ad76-482e-9fe6-26e6a388d9d2",
+      "disabled": true,
+      "notes": "Disabled and credential-free so the demo runs for anyone.",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        2688,
-        128
+        3040,
+        1060
       ],
       "parameters": {
-        "resource": "message",
-        "operation": "send",
         "sendTo": "={{ $json.owner_email }}",
         "subject": "={{ $json.email_subject }}",
         "emailType": "text",
@@ -626,40 +608,34 @@
           "appendAttribution": false,
           "senderName": "People Ops"
         }
-      },
-      "disabled": true,
-      "notes": "Disabled and credential-free so the demo runs for anyone.",
-      "webhookId": "1f01dede-ad76-482e-9fe6-26e6a388d9d2"
+      }
     },
     {
       "id": "efabe150-797a-4f0b-ba79-c2b97eefb6fa",
       "name": "Build the Onboarding Report",
+      "notes": "Reads the assessment directly, so the report describes the state of onboarding rather than the state of the automation.",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
+      "executeOnce": true,
       "position": [
-        2016,
-        320
+        2480,
+        352
       ],
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
         "jsCode": "const MINUTES_PER_MANUAL_TASK = 6;\n\nconst hires = $('Assess Readiness per Hire').all().map(function (i) { return i.json; });\nconst tasks = $('Expand the Checklist per Hire').all().map(function (i) { return i.json; });\nconst digests = $('One Digest per Owner Team').all().map(function (i) { return i.json; });\n\nfunction count(list, fn) { return list.filter(fn).length; }\n\n// Same single definition of OVERDUE used in \"Assess Readiness per Hire\" and\n// \"One Digest per Owner Team\": not done, and past its due date. The per-team\n// breakdown below used to skip blocked tasks while the run total counted them,\n// which is how one morning produced IT 3 overdue and IT 2 overdue at once.\nfunction isOverdue(t) {\n  return String(t.status) !== 'done' && Number(t.days_to_due) < 0;\n}\n\nconst byTeam = {};\nfor (const t of tasks) {\n  const k = String(t.owner_team || 'Unassigned');\n  if (!byTeam[k]) byTeam[k] = { team: k, total: 0, done: 0, open: 0, blocked: 0, overdue: 0 };\n  byTeam[k].total = byTeam[k].total + 1;\n  if (t.status === 'done') byTeam[k].done = byTeam[k].done + 1;\n  else if (t.status === 'blocked') byTeam[k].blocked = byTeam[k].blocked + 1;\n  else byTeam[k].open = byTeam[k].open + 1;\n  if (isOverdue(t)) byTeam[k].overdue = byTeam[k].overdue + 1;\n}\nconst teams = Object.keys(byTeam).map(function (k) {\n  const r = byTeam[k];\n  return {\n    team: r.team,\n    total: r.total,\n    done: r.done,\n    open: r.open,\n    blocked: r.blocked,\n    overdue: r.overdue,\n    complete_pct: r.total ? Math.round((r.done / r.total) * 100) : 0\n  };\n}).sort(function (a, b) { return b.overdue - a.overdue; });\n\nconst created = count(tasks, function (t) { return t.is_new; });\n\n// What was actually DRAFTED is the post-filter list, not the send_digest flag on\n// the pre-filter node. What was actually SENT is whatever the mail node handed\n// back. The mail node is disabled in this demo, so it hands back its own input\n// with no Gmail id or threadId and the confirmed count is honestly zero.\nlet queued = [];\ntry {\n  queued = $('Only Teams Worth Chasing').all().map(function (i) { return i.json; });\n} catch (e) {\n  queued = [];\n}\n\nlet mailConfirmed = 0;\ntry {\n  for (const m of $('Email the Owning Team').all()) {\n    const j = m.json || {};\n    if (j.threadId || j.messageId || (j.id && j.labelIds)) mailConfirmed = mailConfirmed + 1;\n  }\n} catch (e) {\n  mailConfirmed = 0;\n}\n\nlet stamped = 0;\ntry {\n  stamped = $('Stamp the Chase on Each Task').all().length;\n} catch (e) {\n  stamped = 0;\n}\n\n// Berapa yang BENAR-BENAR tertulis, bukan berapa yang disiapkan. 'Stamp the\n// Chase' cuma menyusun barisnya; yang menentukan adalah baris yang\n// dikembalikan tabel. Menghitung dari node penyusun berarti melaporkan niat\n// sebagai perbuatan - persis kesalahan yang sedang dibersihkan di sini.\nlet chaseWritten = 0;\ntry {\n  for (const r of $('Record the Chase').all()) {\n    const j = r.json || {};\n    if (j.id !== undefined && j.id !== null && j.updatedAt) chaseWritten = chaseWritten + 1;\n  }\n} catch (e) {\n  chaseWritten = 0;\n}\n\nconst drafted = queued.length;\nconst suppressedCount = digests.length - drafted;\nconst overridden = count(digests, function (d) { return d.urgency_override; });\n\nconst sendSummary = mailConfirmed > 0\n  ? (mailConfirmed + ' team digest(s) went out, ' + suppressedCount + ' held back as already chased or not yet due.')\n  : (drafted + ' team digest(s) were drafted and handed to the send step; the send step is switched off in this demo, so 0 actually went out. ' +\n     suppressedCount + ' were held back as already chased or not yet due.');\n\nreturn [{\n  json: {\n    run_id: String($execution.id || 'manual'),\n    ran_on: new Date().toISOString().slice(0, 10),\n    hires_in_flight: hires.length,\n    ready: count(hires, function (h) { return h.outcome === 'ready'; }),\n    on_track: count(hires, function (h) { return h.outcome === 'on_track'; }),\n    at_risk: count(hires, function (h) { return h.outcome === 'at_risk'; }),\n    blocked: count(hires, function (h) { return h.outcome === 'blocked'; }),\n    tasks_total: tasks.length,\n    tasks_done: count(tasks, function (t) { return t.status === 'done'; }),\n    tasks_open: count(tasks, function (t) { return t.status !== 'done' && t.status !== 'blocked'; }),\n    tasks_blocked: count(tasks, function (t) { return t.status === 'blocked'; }),\n    tasks_overdue: count(tasks, isOverdue),\n    tasks_created_this_run: created,\n    digests_total: digests.length,\n    digests_drafted: drafted,\n    digests_sent: mailConfirmed,\n    digests_suppressed: suppressedCount,\n    digests_urgency_overridden: overridden,\n    send_step_confirmed: mailConfirmed > 0,\n    send_summary: sendSummary,\n    chase_stamps_written: chaseWritten,\n    chase_stamps_attempted: stamped,\n    coordinator_minutes_saved: tasks.length * MINUTES_PER_MANUAL_TASK,\n    by_team: teams,\n    starting_soon: hires.filter(function (h) { return Number(h.days_to_start) <= 14; })\n      .map(function (h) {\n        return {\n          name: h.hire_name,\n          role: h.hire_role,\n          starts: h.start_date,\n          in_days: h.days_to_start,\n          outcome: h.outcome,\n          readiness: h.readiness_pct,\n          headline: h.headline\n        };\n      }),\n    needs_a_human: hires.filter(function (h) { return h.outcome === 'at_risk' || h.outcome === 'blocked'; })\n      .map(function (h) {\n        return {\n          name: h.hire_name,\n          manager: h.manager,\n          starts: h.start_date,\n          in_days: h.days_to_start,\n          outcome: h.outcome,\n          overdue: h.task_overdue,\n          day_one_gaps: h.day_one_gaps,\n          blocked: h.task_blocked,\n          why: h.headline,\n          outstanding: h.outstanding.map(function (o) { return o.task + ' (' + o.owner + ')'; }).join(', ')\n        };\n      })\n  }\n}];"
-      },
-      "notes": "Reads the assessment directly, so the report describes the state of onboarding rather than the state of the automation.",
-      "executeOnce": true
+      }
     },
     {
       "id": "f6120ccd-58b6-4884-9cf3-29f257b5caff",
       "name": "Format the Report",
+      "notes": "Leads with who needs a human today, because that is the only part of this an HR lead has to act on.",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2240,
-        320
+        2704,
+        352
       ],
       "parameters": {
-        "mode": "manual",
-        "includeOtherFields": true,
         "assignments": {
           "assignments": [
             {
@@ -675,22 +651,24 @@
               "type": "string"
             }
           ]
-        }
-      },
-      "notes": "Leads with who needs a human today, because that is the only part of this an HR lead has to act on."
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
     },
     {
       "id": "c64010be-dd0d-4414-95e2-9efc22bf5db6",
       "name": "Email the HR Lead",
+      "webhookId": "241557f3-5ba8-48fe-8246-79d4f4578525",
+      "disabled": true,
+      "notes": "Disabled on purpose. One message per run.",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        2464,
-        320
+        2780,
+        1060
       ],
       "parameters": {
-        "resource": "message",
-        "operation": "send",
         "sendTo": "people-ops@example.com",
         "subject": "={{ $json.report_title }}",
         "emailType": "text",
@@ -699,10 +677,7 @@
           "appendAttribution": false,
           "senderName": "People Ops"
         }
-      },
-      "disabled": true,
-      "notes": "Disabled on purpose. One message per run.",
-      "webhookId": "241557f3-5ba8-48fe-8246-79d4f4578525"
+      }
     },
     {
       "id": "439d5def-df8b-4825-97d9-a20fc69cae87",
@@ -710,12 +685,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1168,
-        608
+        -40,
+        -220
       ],
       "parameters": {
         "content": "## 1 · The checklist is data, not code\n\nThree tables: the hires, the checklist template, and the tasks actually outstanding.\n\nThe checklist is the point. Rows say what applies to everyone, what applies to a role, a department, or an employment type. HR adds one row to give every future mechanic a new induction step and nobody opens this workflow. A checklist buried in a Code node is a checklist that goes stale.",
-        "color": 4
+        "color": 4,
+        "width": 860,
+        "height": 1020
       }
     },
     {
@@ -724,12 +701,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1168,
-        864
+        860,
+        -220
       ],
       "parameters": {
         "content": "## 2 · Work out what each person needs, then create only what is missing\n\nSix hires and twelve checklist rows become the exact task list each person needs. A cancelled offer is skipped, and the reason is recorded rather than hidden in a query.\n\nOnly rows that do not exist yet are written, keyed on hire plus task code. A task somebody already completed is never reset to open by a later run, and running twice in one morning cannot create a duplicate.",
-        "color": 3
+        "color": 3,
+        "width": 640,
+        "height": 1020
       }
     },
     {
@@ -738,12 +717,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1168,
-        1120
+        1540,
+        -220
       ],
       "parameters": {
         "content": "## 3 · Ready, on track, at risk, blocked\n\nReady means every MANDATORY item is done — not every item. Blocked beats everything else, because a blocked task is not a chasing problem and no number of reminders will move it. Those two get very different messages on purpose: dashboards show late and blocked the same colour, and they need opposite responses.\n\nSomeone three weeks out with an untouched checklist is deliberately silent. Mailing about them teaches everyone to ignore the mail.",
-        "color": 5
+        "color": 5,
+        "width": 880,
+        "height": 1020
       }
     },
     {
@@ -752,12 +733,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1168,
-        1376
+        2440,
+        -220
       ],
       "parameters": {
         "content": "## 4 · Grouped twice, on two different axes\n\nHires are grouped for the MANAGER — one message about their person. Tasks are grouped for the TEAM that owes them — IT gets a single mail listing everything IT owes across every new starter.\n\nThat is the difference between a system people read and one they filter. A team already chased in the last two days is skipped — unless something is overdue, or a day-one item belongs to somebody starting imminently, in which case urgency overrides the gap and the team is chased again.",
-        "color": 6
+        "color": 6,
+        "width": 1080,
+        "height": 1020
       }
     },
     {
@@ -766,21 +749,24 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1168,
-        1632
+        2160,
+        860
       ],
       "parameters": {
         "content": "## 5 · Where it goes\n\nAll three are switched off and carry no credential, so the demo runs with nothing to set up. Two things do read the send step: the chase stamp records whether a message genuinely went out, and the report counts real sends rather than intentions — so with the nodes off, both honestly say drafted rather than sent.\n\nReady and on-track never ping anyone. Only at-risk and blocked reach Slack.",
-        "color": 7
+        "color": 7,
+        "width": 1060,
+        "height": 420
       }
     },
     {
       "id": "ee82946f-fcc3-4f75-a3d8-ee315b004de4",
       "name": "Only Teams Worth Chasing",
+      "notes": "The suppression is decided in the engine and enforced here. Without this node the flag is a comment: every team gets mailed every morning and the report quietly claims otherwise.",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2.2,
       "position": [
-        2464,
+        2928,
         128
       ],
       "parameters": {
@@ -803,28 +789,34 @@
             }
           ],
           "combinator": "and"
-        }
-      },
-      "notes": "The suppression is decided in the engine and enforced here. Without this node the flag is a comment: every team gets mailed every morning and the report quietly claims otherwise."
+        },
+        "options": {}
+      }
     },
     {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "// The chase cadence guard in \"One Digest per Owner Team\" reads last_chased_on,\n// but no node in this workflow ever wrote it. In production the column could\n// only ever be empty, so the guard was permanently disarmed and only fired at\n// all because the reset workflow seeded one row by hand.\n//\n// This node records the chase this run actually performed, for every task that\n// appeared in a digest that reached the send step. The send step is a disabled\n// demo node, so the result recorded says exactly that rather than claiming a\n// message went out.\nconst today = new Date().toISOString().slice(0, 10);\n\nconst queued = $('Only Teams Worth Chasing').all().map(function (i) { return i.json; });\n\nlet confirmed = 0;\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.threadId || j.messageId || (j.id && j.labelIds)) confirmed = confirmed + 1;\n}\n\nconst result = confirmed > 0 ? 'sent' : 'drafted_only_send_step_disabled';\n\nconst out = [];\nconst seen = {};\n\nfor (const d of queued) {\n  const lines = d.lines || [];\n  for (const l of lines) {\n    const key = String(l.task_key || '');\n    if (!key) continue;\n    if (seen[key]) continue;\n    seen[key] = true;\n    out.push({\n      json: {\n        task_key: key,\n        owner_team: String(d.owner_team || ''),\n        owner_email: String(d.owner_email || ''),\n        hire: String(l.hire || ''),\n        task: String(l.task || ''),\n        last_chased_on: today,\n        last_chase_result: result,\n        urgency: String(d.urgency || ''),\n        urgency_override: d.urgency_override === true,\n        execution_id: String($execution.id || 'manual')\n      }\n    });\n  }\n}\n\nreturn out;"
-      },
+      "id": "a1c4f0de-7b55-4a21-9f2e-5c0d19b7aa31",
+      "name": "Stamp the Chase on Each Task",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2912,
+        3152,
         128
       ],
-      "id": "a1c4f0de-7b55-4a21-9f2e-5c0d19b7aa31",
-      "name": "Stamp the Chase on Each Task"
+      "parameters": {
+        "jsCode": "// The chase cadence guard in \"One Digest per Owner Team\" reads last_chased_on,\n// but no node in this workflow ever wrote it. In production the column could\n// only ever be empty, so the guard was permanently disarmed and only fired at\n// all because the reset workflow seeded one row by hand.\n//\n// This node records the chase this run actually performed, for every task that\n// appeared in a digest that reached the send step. The send step is a disabled\n// demo node, so the result recorded says exactly that rather than claiming a\n// message went out.\nconst today = new Date().toISOString().slice(0, 10);\n\nconst queued = $('Only Teams Worth Chasing').all().map(function (i) { return i.json; });\n\nlet confirmed = 0;\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.threadId || j.messageId || (j.id && j.labelIds)) confirmed = confirmed + 1;\n}\n\nconst result = confirmed > 0 ? 'sent' : 'drafted_only_send_step_disabled';\n\nconst out = [];\nconst seen = {};\n\nfor (const d of queued) {\n  const lines = d.lines || [];\n  for (const l of lines) {\n    const key = String(l.task_key || '');\n    if (!key) continue;\n    if (seen[key]) continue;\n    seen[key] = true;\n    out.push({\n      json: {\n        task_key: key,\n        owner_team: String(d.owner_team || ''),\n        owner_email: String(d.owner_email || ''),\n        hire: String(l.hire || ''),\n        task: String(l.task || ''),\n        last_chased_on: today,\n        last_chase_result: result,\n        urgency: String(d.urgency || ''),\n        urgency_override: d.urgency_override === true,\n        execution_id: String($execution.id || 'manual')\n      }\n    });\n  }\n}\n\nreturn out;"
+      }
     },
     {
+      "id": "b2d5e1cf-8c66-4b32-a03f-6d1e2ac8bb42",
+      "name": "Record the Chase",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "onError": "continueRegularOutput",
+      "position": [
+        3376,
+        128
+      ],
       "parameters": {
-        "resource": "row",
         "operation": "update",
         "dataTableId": {
           "__rl": true,
@@ -837,7 +829,6 @@
           "conditions": [
             {
               "keyName": "task_key",
-              "condition": "eq",
               "keyValue": "={{ $json.task_key }}"
             }
           ]
@@ -853,16 +844,7 @@
           }
         },
         "options": {}
-      },
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        3136,
-        128
-      ],
-      "id": "b2d5e1cf-8c66-4b32-a03f-6d1e2ac8bb42",
-      "name": "Record the Chase",
-      "onError": "continueRegularOutput"
+      }
     }
   ],
   "connections": {
