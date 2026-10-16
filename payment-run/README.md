@@ -300,11 +300,17 @@ credentials, so the demo runs for anyone who opens it with nothing to set up. Th
 the treasury emails take bodies already composed in Set nodes, so switching those on changes no
 logic.
 
-Two are not ready to switch on as they stand. The vendor remittance email is addressed to the
-vendor's *name*, because the vendor table has no email column yet. And the HTTP node would send a
-file even when there is nothing to pay — execution 2947 built an empty one — so it needs a guard in
-front of it first. It is the only node here that moves money, and it should stay off until the
-approval path is real and the checksum is verified on the bank's side.
+The vendor remittance email is not ready to switch on: it is addressed to the vendor's *name*,
+because the vendor table has no email column yet.
+
+The HTTP node used to send a file even when there was nothing to pay. Execution 2947 built one
+with a header, a trailer and zero rows. An IF node, **Ada yang Dibayar?**, now sits in front of it
+and passes the file on only when it has at least one row and a total above zero. The false branch
+is left unconnected on purpose, so the run still finishes and the summary still reports 0 rows. The
+file builder keeps returning its item even when it is empty, because the run summary reads it;
+that is why the guard is a separate gate rather than an early `return []`. The HTTP node is still
+the only node here that moves money. It should stay off until the approval path is real and the
+checksum is verified on the bank's side.
 
 ## What it does not do yet
 

@@ -487,7 +487,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2740,
+        2960,
         40
       ],
       "parameters": {
@@ -970,7 +970,7 @@
         "width": 1000,
         "height": 380,
         "color": 4,
-        "content": "## 3 · Berkas bank, dan mengapa ada total kendali\n\nHeader, satu baris per pembayaran, dan trailer berisi jumlah baris, total nilai, dan checksum. Bank menolak berkas yang totalnya tidak cocok — itulah yang menghentikan satu baris terselip atau berubah di antara sistem kita dan sistem mereka.\n\nBerkas hanya memuat baris yang **benar-benar tersimpan** di tabel: pembayaran yang tidak tercatat tidak terlihat oleh penjaga pembayaran ganda di run berikutnya.\n\nNomor rekening di berkas demo disamarkan."
+        "content": "## 3 · Berkas bank, dan mengapa ada total kendali\n\nHeader, satu baris per pembayaran, dan trailer berisi jumlah baris, total nilai, dan checksum. Bank menolak berkas yang totalnya tidak cocok — itulah yang menghentikan satu baris terselip atau berubah di antara sistem kita dan sistem mereka.\n\nBerkas hanya memuat baris yang **benar-benar tersimpan** di tabel: pembayaran yang tidak tercatat tidak terlihat oleh penjaga pembayaran ganda di run berikutnya.\n\nKalau semua faktur tertahan, berkasnya kosong (0 baris, total 0) dan gerbang **Ada yang Dibayar?** menghentikannya sebelum HTTP: bank tidak pernah menerima batch kosong.\n\nNomor rekening di berkas demo disamarkan."
       }
     },
     {
@@ -1068,6 +1068,49 @@
             }
           ],
           "combinator": "or"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b7c1e0a2-5d3f-4e8a-9c61-0f2a7d4e9b13",
+      "name": "Ada yang Dibayar?",
+      "notes": "Berkas tanpa baris pembayaran tidak dikirim ke bank. Jalur false sengaja tidak tersambung: run tetap selesai dan Ringkas Run tetap melaporkan 0 baris.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2740,
+        40
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ Number($json.jumlah_baris) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ Number($json.control_total) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
         },
         "options": {}
       }
@@ -1268,7 +1311,7 @@
       "main": [
         [
           {
-            "node": "Kirim Berkas ke Bank (HTTP)",
+            "node": "Ada yang Dibayar?",
             "type": "main",
             "index": 0
           }
@@ -1439,6 +1482,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Ada yang Dibayar?": {
+      "main": [
+        [
+          {
+            "node": "Kirim Berkas ke Bank (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
