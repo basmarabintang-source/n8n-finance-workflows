@@ -25,7 +25,7 @@ Baris tersimpan: 14 dari 14
 
 Tertahan, dan siapa pemiliknya:
 - [BANK_CHANGED] Cahaya Teknik Presisi PAY-1003 · 1.450.000.000 → treasury
-  Nomor rekening Cahaya Teknik Presisi diubah 3 hari lalu lewat email oleh finance.cahaya@gmail.com, dan perubahan itu belum diverifikasi (verifikasi terakhir: 2026-02-03). Tahanan ini tidak lepas dengan lewatnya waktu. Yang melepasnya hanya konfirmasi telepon terverifikasi di kontrol vendor, ke nomor LAMA yang tersimpan - bukan kontak apa pun di pesan yang meminta perubahan.
+  Nomor rekening Cahaya Teknik Presisi diubah 3 hari lalu lewat email oleh finance.cahaya@webmail.example, dan perubahan itu belum diverifikasi (verifikasi terakhir: 2026-02-03). Tahanan ini tidak lepas dengan lewatnya waktu. Yang melepasnya hanya konfirmasi telepon terverifikasi di kontrol vendor, ke nomor LAMA yang tersimpan - bukan kontak apa pun di pesan yang meminta perubahan.
 - [CASH_SHORT] Berkah Jaya Mandiri PAY-1008 · 310.000.000 → treasury
   Kas yang boleh dipakai 740.200.000 (saldo 900.000.000 dikurangi cadangan 150.000.000, dikurangi 9.800.000 yang sudah di berkas bank tapi belum dibalas). Run ini sudah mengalokasikan 488.584.800, sedangkan tagihan ini 310.000.000. Ditunda, bukan ditolak.
 - [DUPLICATE] Sinar Baja Elektrik PAY-1007 · 22.000.000 → ap_supervisor
@@ -53,7 +53,7 @@ Dibayar:
 
 That 1,45 milyar hold is the whole point. The invoice matched cleanly and the director had
 approved it; nothing about the invoice was wrong. What stopped it was the vendor's bank account
-changing three days earlier, by email, from a gmail address.
+changing three days earlier, by email, from a free webmail address.
 
 ## Files
 
